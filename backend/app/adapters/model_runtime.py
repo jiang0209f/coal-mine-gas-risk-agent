@@ -54,14 +54,34 @@ class ModelRuntime:
         result = []
         for entry in self.entries.values():
             manifest = entry["manifest"]
-            public = {"model_id": manifest["model_id"], "model_version": manifest["version"],
-                      "kind": manifest["kind"], "face_id": entry["face_id"], "source_id": entry["source_id"]}
+            public = self._metadata(entry)
             state = self._invoke(entry, inspect=True)
             public.update(status=state["status"], missing_fields=state.get("missing_fields", []))
             if state.get("error_code"):
                 public["error_code"] = state["error_code"]
             result.append(public)
         return deepcopy(result)
+
+    def describe_packages(self):
+        return [self._metadata(entry) for entry in self.entries.values()]
+
+    @staticmethod
+    def _metadata(entry):
+        manifest = entry["manifest"]
+        result = dict(model_id=manifest["model_id"], model_version=manifest["version"], kind=manifest["kind"],
+                      source_id=entry["source_id"], face_id=entry["face_id"],
+                      deployment_stage=manifest.get("deployment_stage", "unspecified"))
+        if manifest["kind"] == "gas_attribution":
+            result["automatic_attribution"] = manifest.get("automatic_attribution", False)
+        if "validation_assessment" in manifest:
+            result["validation_assessment"] = deepcopy(manifest["validation_assessment"])
+        return result
+
+    def get_spec(self, model_id, version):
+        entry = self.entries.get((model_id, version))
+        if entry is None:
+            raise ValueError("本地模型版本不存在")
+        return dict(manifest=deepcopy(entry["manifest"]), source_id=entry["source_id"], face_id=entry["face_id"])
 
     def infer(self, model_id, version, request):
         entry = self.entries.get((model_id, version))

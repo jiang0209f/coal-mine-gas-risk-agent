@@ -94,6 +94,20 @@ def test_empty_runtime_has_no_packages():
     assert ModelRuntime().list_packages() == []
 
 
+def test_model_catalog_describes_experimental_state_without_loading_workers(tmp_path, monkeypatch):
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "manifest.json").write_text(json.dumps(dict(kind="gas_attribution", model_id="candidate", version="v1", artifacts={},
+        deployment_stage="experimental", automatic_attribution=False)))
+    catalog = tmp_path / "catalog.json"
+    catalog.write_text(json.dumps(dict(models=[dict(bundle_dir="bundle", source_id="history", face_id="31002")])))
+    runtime = ModelRuntime(catalog)
+    monkeypatch.setattr(runtime, "_invoke", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("metadata must not load model")))
+    package = runtime.describe_packages()[0]
+    assert package["deployment_stage"] == "experimental"
+    assert package["automatic_attribution"] is False
+
+
 def test_catalog_rejects_duplicate_model_versions(tmp_path):
     bundle = tmp_path / "bundle"
     bundle.mkdir()

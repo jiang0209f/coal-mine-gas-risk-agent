@@ -20,6 +20,7 @@ def build_services(configuration):
     from app.services.sessions.runner import SessionRunner
     from app.services.prediction.service import PredictionService
     from app.services.prediction.packages import ModelPackagesService
+    from app.services.prediction.trained import TrainedModelsPipeline
     from app.adapters.model_runtime import ModelRuntime
     from app.services.alerts.service import AlertsService
     from app.services.traceability.service import TraceabilityService
@@ -33,10 +34,12 @@ def build_services(configuration):
     store = Store(configuration.database_url or f"sqlite+pysqlite:///{(runtime / 'app.db').as_posix()}")
     s = {"store": store, "auth": AuthService(store), "sessions": SessionsService(store)}
     s["data"] = DataService(store, runtime / "imports")
-    s["prediction"] = PredictionService(store, s["data"])
-    s["model_packages"] = ModelPackagesService(store, ModelRuntime(configuration.model_catalog_path))
+    model_runtime = ModelRuntime(configuration.model_catalog_path)
+    trained_models = TrainedModelsPipeline(store, s["data"], model_runtime)
+    s["prediction"] = PredictionService(store, s["data"], trained_models)
+    s["model_packages"] = ModelPackagesService(store, model_runtime)
     s["alerts"] = AlertsService(store, s["data"])
-    s["traceability"] = TraceabilityService(store, s["alerts"], s["data"], s["prediction"])
+    s["traceability"] = TraceabilityService(store, s["alerts"], s["data"], s["prediction"], trained_models)
     s["knowledge"] = KnowledgeService(store)
     s["cases"] = CasesService(store, s["alerts"], s["knowledge"])
     s["evaluation"] = EvaluationService(store)

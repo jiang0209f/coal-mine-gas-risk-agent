@@ -248,16 +248,28 @@ class AlertsService:
         rules = self.get_rules(context.actor, source["face_id"], point_id, rule_version)
         values = []
         interval_starts = set()
-        if forecast_run.get("status") == "completed" and _time(forecast_run["as_of"]) <= context.as_of:
+        step = rules["forecast_interval_seconds"]
+        cutoff = context.as_of
+        try:
+            cutoff = _time(forecast_run.get("cutoff", forecast_run["as_of"]))
+            issued_at = _time(forecast_run["as_of"])
+            declared_step = forecast_run.get("aggregation", {}).get("seconds", step)
+            current_cycle = (type(declared_step) is int and declared_step == step
+                and cutoff <= issued_at <= context.as_of
+                and 0 <= (context.as_of - cutoff).total_seconds() < step)
+        except (AttributeError, TypeError, ValueError):
+            current_cycle = False
+        if forecast_run.get("status") == "completed" and current_cycle:
             for output in forecast_run.get("outputs", []):
                 if output.get("prediction_stage") != "residual_corrected" or output.get("quantity_semantics") != "physical_forecast" or output.get("unit") not in ("%", "%CH4", "%CH4（推定）"):
                     continue
                 for interval in output.get("interval_values", []):
                     start, end = _time(interval["start_at"]), _time(interval["end_at"])
-                    if start >= context.as_of and end <= context.as_of + timedelta(hours=1) and (end - start).total_seconds() == 300 and _numeric(interval.get("value")):
+                    if start >= cutoff and end <= cutoff + timedelta(seconds=rules["forecast_horizon_seconds"]) and (end - start).total_seconds() == step and _numeric(interval.get("value")):
                         values.append(interval["value"])
                         interval_starts.add(start)
-        complete_horizon = interval_starts == {context.as_of + timedelta(minutes=5 * index) for index in range(12)}
+        complete_horizon = interval_starts == {cutoff + timedelta(seconds=step * index)
+            for index in range(rules["forecast_horizon_seconds"] // step)}
         if not values or (max(values) < rules["forecast_yellow_threshold"] and not complete_horizon):
             return {"point_id": point_id, "as_of": utcstr(context.as_of), "status": "not_ready", "observed_status": None,
                     "forecast_status": "model_not_ready", "alert_level": None, "event_refs": [], "missing_fields": ["physical_residual_corrected_forecast"]}

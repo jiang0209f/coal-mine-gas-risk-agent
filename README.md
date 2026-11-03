@@ -4,7 +4,7 @@
 
 专业模型通过适配器接入；当前内置持久性基线用于检查软件流程，缺少模型或有效输入返回 `not_ready`。预警规则标记为团队草案，物理浓度与决策分值分别保存。详见[模块与接口](docs/architecture.md)。
 
-FEDformer＋LightGBM 预测和 KMeans/SVC 候选溯源已提供独立封装，接收按训练顺序准备的特征，通过隔离进程执行。模型清单、训练元数据与产物按 SHA-256 校验；当前原始资料缺训练权重，私有登记模板保持 `not_ready`。配置与调用见[模型封装说明](docs/model-packaging.md)。
+FEDformer＋LightGBM 预测和 KMeans/SVC 候选溯源已用31002六通道加工历史数据完成首轮训练。专业预测接通常规预测接口；验证MAE较低的持久性保持默认，专业模型可显式调用。聚类与分类验算发现旧SVC的尺度退化和原因映射依据不足，自动溯源保持关闭。环境、权重和逐例报告位于F盘。详见[训练与聚类验算](docs/training-and-clustering-audit-20261103.md)及[封装调用说明](docs/model-packaging.md)。
 
 ## 安装与启动
 

@@ -30,11 +30,13 @@ class ModelPackagesService:
 
     def run(self, context, model_id, features, version=None):
         self._source(context)
-        candidates = [p for p in self.runtime.list_packages() if p["model_id"] == model_id
+        catalog = self.runtime.describe_packages() if hasattr(self.runtime, "describe_packages") else self.runtime.list_packages()
+        candidates = [p for p in catalog if p["model_id"] == model_id
                       and (version is None or p["model_version"] == version)]
         if not candidates:
             raise DomainError("模型封装版本不存在", "not_found", 404)
-        allowed = [p for p in self.list_packages(context) if p in candidates]
+        source = self._source(context)
+        allowed = [p for p in candidates if p["source_id"] == context.source_id and p["face_id"] == source["face_id"]]
         if not allowed:
             raise DomainError("模型与会话来源不一致", "forbidden", 403)
         if len(allowed) != 1:

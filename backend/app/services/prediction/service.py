@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from app.db import Store
 from app.schemas.common import Actor, DomainError, ExecutionContext, now_utc, utcstr
+from app.adapters.model_bundle import ModelNotReady
 
 __all__ = ["PredictionService"]
 
@@ -24,9 +25,10 @@ def _datetime(value: str | datetime) -> datetime:
 
 
 class PredictionService:
-    def __init__(self, store: Store, data_service) -> None:
+    def __init__(self, store: Store, data_service, professional_pipeline=None) -> None:
         self.store = store
         self.data = data_service
+        self.professional_pipeline = professional_pipeline
         self._adapters: dict[str, Callable] = {"persistence": self._persistence}
 
     def register_adapter(self, adapter_kind: str, predict: Callable) -> None:
@@ -66,6 +68,10 @@ class PredictionService:
         missing = [key for key in required if key not in value]
         if missing:
             raise DomainError("模型清单缺少字段", missing_fields=missing)
+        if "default_eligible" in value and type(value["default_eligible"]) is not bool:
+            raise DomainError("模型默认启用状态须为布尔值")
+        if value.get("input_statistic", "mean") not in ("mean", "max"):
+            raise DomainError("模型输入统计量须为mean或max")
         for key in ("model_id", "version", "adapter_kind", "face_id", "source_id", "target_quantity", "unit"):
             if not isinstance(value[key], str) or not value[key].strip():
                 raise DomainError(f"模型字段 {key} 必须为非空字符串")
@@ -160,7 +166,7 @@ class PredictionService:
             if point_id not in model["point_ids"]:
                 raise DomainError("模型不适用于该点位", code="forbidden", status_code=403)
         else:
-            candidates = self.list_models(context, point_id)
+            candidates = [m for m in self.list_models(context, point_id) if m.get("default_eligible", True)]
             if not candidates:
                 run["missing_fields"] = ["model_id"]
                 return self._save(run)
@@ -178,6 +184,28 @@ class PredictionService:
             "input_window": {"start_at": utcstr(start), "end_at": utcstr(cutoff),
                              "aggregation_seconds": step, "count": model["input_window"]},
         })
+        if model["adapter_kind"] == "fedformer_lgbm":
+            if self.professional_pipeline is None:
+                run["missing_fields"] = ["professional_pipeline"]
+                return self._save(run)
+            if point.get("mapping_status") != "confirmed" or point.get("lineage") not in model["allowed_lineage"]:
+                run["missing_fields"] = ["confirmed_allowed_input_points"]
+                return self._save(run)
+            try:
+                result = self.professional_pipeline.forecast(context, point_id, deepcopy(model), horizon)
+                if result["status"] != "completed":
+                    run.update(status="failed", error_code=result.get("error_code", "model_adapter_failed"))
+                    return self._save(run)
+                self._validate_outputs(result["outputs"], model, cutoff, horizon)
+                run.update(status="completed", outputs=result["outputs"], input_refs=result["input_refs"],
+                           input_origin=result["input_origin"], feature_pipeline_version=result["feature_pipeline_version"])
+            except ModelNotReady as error:
+                run["missing_fields"] = error.missing_fields
+            except DomainError:
+                raise
+            except Exception:
+                run.update(status="failed", error_code="model_adapter_failed")
+            return self._save(run)
         adapter = self._adapters.get(model["adapter_kind"])
         if adapter is None:
             run["missing_fields"] = ["model_adapter"]
@@ -244,7 +272,7 @@ class PredictionService:
             "unit": model["unit"], "interval_values": [
                 {"start_at": utcstr(cutoff + timedelta(seconds=index * step)),
                  "end_at": utcstr(cutoff + timedelta(seconds=(index + 1) * step)),
-                 "value": rows[-1]["value"]}
+                 "value": rows[-1]["max"] if model.get("input_statistic") == "max" else rows[-1]["value"]}
                 for index in range(horizon_seconds // step)
             ],
         }]

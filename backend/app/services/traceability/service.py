@@ -11,11 +11,12 @@ __all__ = ["TraceabilityService"]
 
 
 class TraceabilityService:
-    def __init__(self, store: Store, alerts_service, data_service=None, prediction_service=None) -> None:
+    def __init__(self, store: Store, alerts_service, data_service=None, prediction_service=None, trained_models=None) -> None:
         self.store = store
         self.alerts_service = alerts_service
         self.data_service = data_service
         self.prediction_service = prediction_service
+        self.trained_models = trained_models
 
     def get_event_evidence(self, context, event_id, event_revision=None):
         snapshot = self.alerts_service.get_event_snapshot(context, event_id, event_revision)
@@ -56,7 +57,13 @@ class TraceabilityService:
             missing.append("observation_fragments")
         if run_id and forecast is None:
             missing.append("forecast_run")
-        return {"event_snapshot": snapshot, "snapshot_as_of": cutoff,
+        result = {"event_snapshot": snapshot, "snapshot_as_of": cutoff,
                 "observation_fragments": fragments, "forecast_run": forecast,
                 "rules": rules, "condition_hints": hints, "causal_status": "evidence_only",
                 "evidence_refs": snapshot["evidence_refs"], "missing_fields": missing}
+        if self.trained_models is not None:
+            attribution = self.trained_models.attribute_event(frozen_context, snapshot, fragments)
+            result["candidate_attribution"] = attribution
+            if attribution["status"] == "completed":
+                result["causal_status"] = "candidate_attribution"
+        return result

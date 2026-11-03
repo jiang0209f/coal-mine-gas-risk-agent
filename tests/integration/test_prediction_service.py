@@ -139,6 +139,22 @@ def test_persistence_uses_exact_closed_window_and_preserves_forecast_provenance(
     assert service.get_forecast(execution, run["run_id"]) == run
 
 
+def test_persistence_can_use_interval_maximum_for_maximum_target(prediction):
+    service, data, actor, execution = prediction
+    data.rows[-1]["max"] = .9
+    service.register_model(actor, manifest(input_statistic="max"))
+    result = service.run_prediction(execution, "31002:T0")
+    assert result["outputs"][0]["interval_values"][0]["value"] == .9
+
+
+def test_experimental_model_is_explicitly_callable_but_not_default(prediction):
+    service, _, actor, execution = prediction
+    service.register_model(actor, manifest())
+    service.register_model(actor, manifest(model_id="candidate", default_eligible=False))
+    assert service.run_prediction(execution, "31002:T0")["model_id"] == "offline-persistence"
+    assert service.run_prediction(execution, "31002:T0", "candidate")["model_id"] == "candidate"
+
+
 @pytest.mark.parametrize("problem", ["short", "gap", "open", "late", "invalid", "processed", "unknown"])
 def test_incomplete_or_invisible_or_disallowed_windows_return_not_ready(prediction, problem):
     service, data, actor, execution = prediction

@@ -255,6 +255,59 @@ def test_partial_low_forecast_is_not_ready_and_full_horizon_can_be_blue(setup):
     assert result["alert_level"] == "blue"
 
 
+def full_forecast(value=0.4, cutoff_seconds=0, issued_seconds=0):
+    cutoff = START + timedelta(seconds=cutoff_seconds)
+    run = forecast(value, as_of=utcstr(START + timedelta(seconds=issued_seconds)),
+                   cutoff=utcstr(cutoff), aggregation={"seconds": 300})
+    run["outputs"][0]["interval_values"] = [dict(
+        start_at=utcstr(cutoff + timedelta(minutes=5 * index)),
+        end_at=utcstr(cutoff + timedelta(minutes=5 * (index + 1))), value=value,
+    ) for index in range(12)]
+    return run
+
+
+def test_full_low_forecast_remains_evaluated_between_bucket_boundaries(setup):
+    _, service, actor = setup
+    result = service.evaluate_forecast(ctx(actor, 60), full_forecast(0.4, issued_seconds=60))
+    assert result["status"] == "evaluated"
+    assert result["alert_level"] == "blue"
+
+
+def test_first_current_forecast_bucket_can_trigger_between_boundaries(setup):
+    _, service, actor = setup
+    run = full_forecast(0.4, issued_seconds=60)
+    run["outputs"][0]["interval_values"][0]["value"] = 0.7
+    result = service.evaluate_forecast(ctx(actor, 60), run)
+    assert result["status"] == "evaluated"
+    assert result["alert_level"] == "yellow"
+    event = service.query_events(ctx(actor, 60), event_type="forecast_exceedance")[0]
+    assert event["revision_as_of"] == utcstr(START + timedelta(seconds=60))
+
+
+def test_complete_low_forecast_ends_existing_event_between_boundaries(setup):
+    _, service, actor = setup
+    service.evaluate_forecast(ctx(actor), full_forecast(0.7))
+    original = service.query_events(ctx(actor), event_type="forecast_exceedance")[0]
+    result = service.evaluate_forecast(ctx(actor, 60), full_forecast(0.4, issued_seconds=60))
+    assert result["status"] == "evaluated"
+    assert result["alert_level"] == "blue"
+    event = service.query_events(ctx(actor, 60), event_type="forecast_exceedance")[0]
+    assert event["event_id"] == original["event_id"]
+    assert event["event_state"] == "ended"
+    assert event["revision_as_of"] == utcstr(START + timedelta(seconds=60))
+    assert event["end_at"] == utcstr(START + timedelta(seconds=60))
+
+
+@pytest.mark.parametrize(("context_seconds", "cutoff_seconds"), [(300, 0), (60, 300), (60, -300)])
+def test_expired_or_future_forecast_cutoff_does_not_trigger_rules(setup, context_seconds, cutoff_seconds):
+    _, service, actor = setup
+    result = service.evaluate_forecast(ctx(actor, context_seconds), full_forecast(
+        0.9, cutoff_seconds=cutoff_seconds, issued_seconds=context_seconds))
+    assert result["status"] == "not_ready"
+    assert result["alert_level"] is None
+    assert service.query_events(ctx(actor, context_seconds)) == []
+
+
 @pytest.mark.parametrize(("stage", "semantics"), [("threshold_shifted", "decision_score"), ("fedformer_raw", "physical_forecast"), ("baseline_persistence", "physical_forecast"), ("residual_corrected", "decision_score")])
 def test_other_prediction_stages_and_decision_scores_do_not_trigger_rules(setup, stage, semantics):
     _, service, actor = setup

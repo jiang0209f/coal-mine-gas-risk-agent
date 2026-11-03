@@ -108,6 +108,22 @@ def configured_service(parts, responses):
     return service, adapter
 
 
+def test_model_and_point_ids_are_available_without_private_paths_or_other_sources(agent_parts):
+    _, _, context, services, _ = agent_parts
+    services["prediction"].list_models = lambda ctx: [
+        dict(model_id="fedformer-candidate", version="v1", source_id="source", point_ids=["point"],
+             model_type="professional", default_eligible=False, deployment_stage="experimental", legacy_source_root="PRIVATE_MODEL_PATH"),
+        dict(model_id="FOREIGN_MODEL", version="v1", source_id="other", point_ids=["other-point"])]
+    services["data"].list_points = lambda actor, source_id: [
+        dict(point_id="point", source_id="source", quantity="methane", unit="%", file_path="PRIVATE_INPUT_PATH")]
+    service, adapter = configured_service(agent_parts, [reply("模型目录已读。")])
+    service.chat(context, "列出当前可调用模型")
+    system = adapter.requests[0]["messages"][0]["content"]
+    assert "fedformer-candidate" in system and '"default_eligible": false' in system
+    assert '"point_id": "point"' in system
+    assert "PRIVATE_MODEL_PATH" not in system and "PRIVATE_INPUT_PATH" not in system and "FOREIGN_MODEL" not in system
+
+
 def test_no_key_uses_actual_event_template_without_constructing_adapter(agent_parts):
     store, actor, context, services, calls = agent_parts
 
