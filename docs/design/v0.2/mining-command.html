@@ -1,0 +1,371 @@
+<div id="mine-command-v2" aria-label="瓦斯风险智能管控平台页面设计稿">
+  <header class="mc-masthead">
+    <div class="mc-mine"><span class="mc-mine-logo" aria-hidden="true">矿</span><div><strong>新元煤矿</strong><span>31002 综采工作面</span></div></div>
+    <div class="mc-platform-title"><h1>采煤工作面瓦斯风险智能管控平台</h1><div class="mc-title-rule"><span></span><i></i><i></i><i></i><span></span></div></div>
+    <div class="mc-time"><strong>2022-04-07 08:40:00</strong><span><b class="mc-status-dot"></b> 历史回放 <em>安全管理</em></span></div>
+  </header>
+  <nav class="mc-navigation" aria-label="业务导航">
+    <button type="button" data-nav="综合态势" aria-pressed="true">综合态势</button><button type="button" data-nav="监测预警">监测预警</button><button type="button" data-nav="事件研判">事件研判</button><button type="button" data-nav="处置管理">处置管理</button><button type="button" data-nav="知识资料">知识资料</button><button type="button" data-nav="模型评估">模型评估</button><button type="button" data-nav="系统管理">系统管理</button>
+  </nav>
+  <div class="mc-toolbar"><div class="mc-location"><span>工作面</span><strong>31002</strong><span class="mc-divider"></span><span>数据范围</span><strong>最近 60 分钟</strong></div><div class="mc-playback"><button class="mc-time-choice active" type="button" data-range="60">1小时</button><button class="mc-time-choice" type="button" data-range="180">3小时</button><span class="mc-divider"></span><button class="mc-play-button" type="button">Ⅱ 暂停</button><button class="mc-next-button" type="button">前进 1 分钟</button></div></div>
+  <section class="mc-status-band" aria-label="监测摘要">
+    <div><span>当前浓度 <b class="mc-point-label">T0</b></span><strong class="mc-current-value mc-red">0.86<small>%CH₄</small></strong><em>更新于 08:39:55</em></div>
+    <div><span>监测点位</span><strong>4<small>个</small></strong><em>数据在线</em></div>
+    <div><span>进行中预警</span><strong class="mc-red">1<small>条</small></strong><em>红色预警 1 条</em></div>
+    <div><span>处置待办</span><strong class="mc-amber">2<small>项</small></strong><em>待确认 1 · 待复核 1</em></div>
+    <div><span>预测状态</span><strong class="mc-word">等待模型</strong><em>专业模型未就绪</em></div>
+  </section>
+  <main class="mc-dashboard">
+    <aside class="mc-left-rail">
+      <section class="mc-panel mc-overview-panel"><div class="mc-panel-heading"><h2>监测概况</h2><span class="mc-muted">31002</span></div><div class="mc-overview"><div class="mc-status-ring" role="img" aria-label="4个测点中1个报警、3个正常"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="46" fill="none" stroke="#164562" stroke-width="10"/><circle cx="60" cy="60" r="46" fill="none" stroke="#3dc7dd" stroke-width="10" stroke-dasharray="211 289" transform="rotate(-90 60 60)"/><circle cx="60" cy="60" r="46" fill="none" stroke="#f47d84" stroke-width="10" stroke-dasharray="68 289" stroke-dashoffset="-218" transform="rotate(-90 60 60)"/></svg><div><strong>4</strong><span>监测点位</span></div></div><dl><div><dt><i class="mc-dot cyan"></i>正常</dt><dd>3</dd></div><div><dt><i class="mc-dot red"></i>报警</dt><dd>1</dd></div><div><dt><i class="mc-dot grey"></i>离线</dt><dd>0</dd></div></dl></div><div class="mc-overview-footer"><span>最近数据更新</span><strong>08:39:55</strong></div></section>
+      <section class="mc-panel mc-points-panel"><div class="mc-panel-heading"><h2>点位监测</h2><span class="mc-muted">%CH₄</span></div><div class="mc-point-table"></div><div class="mc-point-foot"><span>报警值 <b>0.80%</b></span><button type="button" data-open="points">点位详情 ›</button></div></section>
+      <section class="mc-panel mc-quality-panel"><div class="mc-panel-heading"><h2>导入数据质量</h2><button type="button" class="mc-text-button" data-open="quality">详情 ›</button></div><div class="mc-quality-top"><span>有效记录占比</span><strong>99.96<small>%</small></strong></div><div class="mc-quality-track"><span></span></div><div class="mc-quality-figures"><div><span>有效记录</span><strong>770,598</strong></div><div><span>异常记录</span><strong class="mc-amber">332</strong></div></div><div class="mc-quality-meta"><span>时间完整性</span><b>已核查</b></div></section>
+    </aside>
+    <div class="mc-center-rail">
+      <section class="mc-panel mc-scene-panel"><div class="mc-panel-heading"><h2>工作面监测</h2><div class="mc-scene-tools"><span class="mc-scene-selected">T0</span><button class="mc-text-button" type="button" data-open="points">测点信息</button></div></div>
+        <div class="mc-mine-scene" aria-label="工作面监测布置设计">
+          <svg class="mc-mine-geometry" viewBox="0 0 800 380" role="img" aria-label="工作面、巷道、支架和采煤机的布置视图">
+            <defs><linearGradient id="mc-coal-face" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#17486a"/><stop offset="1" stop-color="#092c48"/></linearGradient><linearGradient id="mc-face-edge" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#2a607b"/><stop offset="1" stop-color="#0a263e"/></linearGradient><linearGradient id="mc-support-metal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#81b8c9"/><stop offset=".45" stop-color="#356e89"/><stop offset="1" stop-color="#173b58"/></linearGradient><pattern id="mc-ground-grid" width="36" height="36" patternUnits="userSpaceOnUse" patternTransform="matrix(1,-.18,.5,.55,0,110)"><path d="M36 0H0V36" fill="none" stroke="#14415c" stroke-width=".8"/></pattern></defs>
+            <ellipse cx="408" cy="255" rx="310" ry="90" fill="#031426" opacity=".65"/>
+            <path d="M24 77H777V360H24Z" fill="url(#mc-ground-grid)" opacity=".8"/>
+            <path d="M103 122L519 48 719 254 302 329Z" fill="url(#mc-coal-face)" stroke="#2d627f" stroke-width="1.2"/>
+            <path d="M302 329L719 254 719 269 302 345Z" fill="url(#mc-face-edge)" stroke="#1d4b67"/>
+            <path d="M103 122L302 329 302 345 103 139Z" fill="#123953" stroke="#1d4b67"/>
+            <path d="M124 126L527 55M149 153L550 82M173 181L577 108M199 207L603 135M226 235L629 161M251 262L654 188M278 289L680 215M303 316L707 242" stroke="#214a66" stroke-width="1"/>
+            <path d="M150 115L349 320M212 104L411 308M275 92L475 296M337 81L538 285M400 70L600 273M462 59L663 262" stroke="#214a66" stroke-width="1"/>
+            <path d="M58 128L155 109 391 67 499 47 578 70" fill="none" stroke="#214f68" stroke-width="27" stroke-linejoin="round"/>
+            <path d="M58 122L155 103 391 61 499 41 578 64" fill="none" stroke="#3d899d" stroke-width="13" stroke-linejoin="round"/>
+            <path d="M58 122L155 103 391 61 499 41 578 64" fill="none" stroke="#6bb1be" stroke-width="1.5"/>
+            <path d="M229 341L317 318 561 275 705 248 761 265" fill="none" stroke="#1f4c68" stroke-width="28" stroke-linejoin="round"/>
+            <path d="M229 335L317 312 561 269 705 242 761 259" fill="none" stroke="#327b9a" stroke-width="13" stroke-linejoin="round"/>
+            <path d="M229 335L317 312 561 269 705 242 761 259" fill="none" stroke="#63b6cf" stroke-width="1.5"/>
+            <path d="M391 61L561 269" stroke="#031727" stroke-width="35"/>
+            <path d="M387 58L558 267" stroke="#4fa1b9" stroke-width="2"/>
+            <g class="mc-supports"></g>
+            <path d="M405 59L574 266" stroke="#89d9dc" stroke-width="3"/>
+            <path d="M409 70L575 273" stroke="#19445c" stroke-width="3"/>
+            <g transform="translate(466 155) rotate(50)"><rect x="-27" y="-8" width="62" height="21" rx="3" fill="#1a2e3a"/><path d="M-25-12H30L37-5H-19Z" fill="#e5b66c"/><path d="M-19-5H37V8H-19Z" fill="#b27d3e"/><path d="M-25-12L-19-5V8L-25 1Z" fill="#79562f"/><ellipse cx="-33" cy="0" rx="10" ry="13" fill="#315c70" stroke="#8cacb7" stroke-width="2"/><ellipse cx="44" cy="0" rx="10" ry="13" fill="#315c70" stroke="#8cacb7" stroke-width="2"/></g>
+            <path d="M234 87l24-5-8-4m8 4-6 8M630 255l-24 4 9 4m-9-4 6-8" stroke="#51d1d8" stroke-width="2" fill="none"/>
+            <ellipse class="mc-sensor-halo" cx="561" cy="269" rx="32" ry="13" fill="#e36d7b" opacity=".12"/>
+            <g class="mc-scene-connectors" fill="none" stroke-width="1"><path d="M561 269L638 294 665 294" stroke="#ee8590"/><path d="M155 103L112 76 87 76" stroke="#41c1d8"/><path d="M499 41L607 30 635 30" stroke="#41c1d8"/><path d="M317 312L202 282 158 282" stroke="#41c1d8"/></g>
+            <g fill="#5dc4d6"><circle cx="155" cy="103" r="5"/><circle cx="499" cy="41" r="5"/><circle cx="317" cy="312" r="5"/></g><circle cx="561" cy="269" r="6" fill="#ff858c"/>
+          </svg>
+          <div class="mc-scene-label mc-label-in">进风巷</div><div class="mc-scene-label mc-label-out">回风巷</div><div class="mc-scene-label mc-label-face">31002 工作面</div><div class="mc-scene-label mc-label-machine">采煤机</div>
+          <button type="button" class="mc-map-point mc-point-t0 selected" data-point="T0"><span><i class="mc-dot red"></i>T0</span><strong>0.86<small>%</small></strong></button><button type="button" class="mc-map-point mc-point-t1" data-point="T1"><span><i class="mc-dot cyan"></i>T1</span><strong>0.56<small>%</small></strong></button><button type="button" class="mc-map-point mc-point-t2" data-point="T2"><span><i class="mc-dot cyan"></i>T2</span><strong>0.42<small>%</small></strong></button><button type="button" class="mc-map-point mc-point-t5" data-point="T5"><span><i class="mc-dot cyan"></i>T5</span><strong>0.38<small>%</small></strong></button>
+          <div class="mc-scene-key"><span><i class="mc-dot cyan"></i>正常</span><span><i class="mc-dot red"></i>报警</span><span><i class="mc-dot grey"></i>离线</span></div>
+        </div>
+        <div class="mc-scene-bottom"><span>选中测点 <strong class="mc-selected-point">T0</strong></span><span>原始测值 <b class="mc-selected-number mc-red">0.86%</b></span><button type="button" class="mc-text-button" data-open="points">查看监测记录 ›</button></div>
+      </section>
+      <section class="mc-panel mc-trend-panel"><div class="mc-panel-heading"><h2>浓度分析</h2><div class="mc-trend-tabs"><button class="active" type="button" data-chart="trend">浓度趋势</button><button type="button" data-chart="compare">测点对比</button><button type="button" data-chart="forecast">预测分析</button></div></div><div class="mc-chart-legend"><span><i class="mc-line-swatch"></i><b class="mc-trend-point">T0</b> 实测</span><span><i class="mc-line-swatch red"></i>报警值 0.80%</span><span class="mc-chart-period">07:40—08:40</span></div><div class="mc-trend-chart" role="img" aria-label="甲烷浓度趋势"></div></section>
+    </div>
+    <aside class="mc-right-rail">
+      <section class="mc-panel mc-current-alert"><div class="mc-panel-heading"><h2>当前预警</h2><span class="mc-live-label">进行中</span></div><div class="mc-alert-top"><span class="mc-alert-square">红色</span><div><strong>T0 甲烷浓度超限</strong><span>08:32:48 起</span></div></div><div class="mc-alert-values"><div><span>当前浓度</span><strong>0.86<small>%</small></strong></div><div><span>报警值</span><strong>0.80<small>%</small></strong></div></div><div class="mc-alert-foot"><span class="mc-tag amber">疑似标校</span><button type="button" class="mc-text-button" data-open="event">查看事件 ›</button></div></section>
+      <section class="mc-panel mc-ai-panel"><div class="mc-panel-heading"><h2>智能研判</h2><span class="mc-ai-state">待审核</span></div><div class="mc-ai-tabs"><button class="active" type="button" data-ai="result">研判结论</button><button type="button" data-ai="steps">执行记录</button></div><div class="mc-ai-content" aria-live="polite"></div><div class="mc-ai-actions"><button type="button" class="mc-button primary" data-open="evidence">查看依据</button><button type="button" class="mc-button" data-action="advice">生成建议</button></div></section>
+      <section class="mc-panel mc-todo-panel"><div class="mc-panel-heading"><h2>处置待办</h2><span class="mc-amber">2 项</span></div><div class="mc-todo-item"><span class="mc-todo-index">01</span><div><strong>T0 超限事件</strong><span>等待人工确认</span></div><button type="button" data-open="disposition">处置 ›</button></div><div class="mc-todo-item"><span class="mc-todo-index muted">02</span><div><strong>T0 历史高位记录</strong><span>等待处置复核</span></div><button type="button" data-open="review">复核 ›</button></div></section>
+    </aside>
+    <section class="mc-panel mc-event-log"><div class="mc-panel-heading"><h2>预警记录</h2><div class="mc-event-filters"><button class="active" type="button" data-filter="all">全部</button><button type="button" data-filter="active">进行中</button><span class="mc-muted">近 24 小时</span></div></div><div class="mc-log-table-wrap"><table class="mc-log-table"><thead><tr><th>发生时间</th><th>测点</th><th>预警类型</th><th>预警等级</th><th>峰值 / %</th><th>质量标记</th><th>处置状态</th><th>操作</th></tr></thead><tbody></tbody></table></div></section>
+  </main>
+  <div class="mc-dialog-backdrop" hidden><section class="mc-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="mc-dialog-title"><header><div><span class="mc-dialog-kicker">31002 综采工作面</span><h2 id="mc-dialog-title">事件详情</h2></div><button class="mc-dialog-close" type="button" aria-label="关闭详情">×</button></header><div class="mc-dialog-body"></div><footer><span class="mc-dialog-message" aria-live="polite"></span><button class="mc-button" type="button" data-close>关闭</button></footer></section></div>
+</div>
+<style>
+#mine-command-v2{--mc-bg:#08192d;--mc-panel:#0d2945;--mc-panel2:#102f4e;--mc-ink:#e7f2fd;--mc-muted:#93aec8;--mc-line:#234962;--mc-cyan:#49c4e5;--mc-cyan-soft:#1d516c;--mc-red:#ff8c96;--mc-amber:#edbb68;--mc-green:#6dceb5;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif;font-size:13px;line-height:1.5;color:var(--mc-ink);background:radial-gradient(ellipse at 50% 25%,#0f3352 0,#091c32 47%,#07172a 100%);color-scheme:dark;position:relative;isolation:isolate;min-width:0;padding:0 17px 16px}
+#mine-command-v2 *{box-sizing:border-box}
+#mine-command-v2 h1,#mine-command-v2 h2,#mine-command-v2 p,#mine-command-v2 dl,#mine-command-v2 dd{margin:0}
+#mine-command-v2 button{font:inherit;cursor:pointer;color:inherit}
+#mine-command-v2 button:focus-visible{outline:2px solid var(--mc-cyan);outline-offset:3px}
+#mine-command-v2 strong,#mine-command-v2 b{font-weight:600}
+#mine-command-v2 .mc-masthead{display:grid;grid-template-columns:minmax(130px,1fr) minmax(0,2.5fr) minmax(170px,1fr);align-items:center;gap:12px;height:91px;position:relative}
+#mine-command-v2 .mc-masthead:after{content:"";height:1px;position:absolute;bottom:0;inset-inline:0;background:linear-gradient(90deg,transparent,#2789b7 22%,#49c4e5 50%,#2789b7 78%,transparent)}
+#mine-command-v2 .mc-mine{display:flex;gap:10px;align-items:center}
+#mine-command-v2 .mc-mine-logo{width:35px;height:37px;border:1px solid #3da6c6;display:grid;place-items:center;font-size:20px;color:var(--mc-cyan);background:#143853;clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)}
+#mine-command-v2 .mc-mine strong{display:block;font-size:15px;letter-spacing:1px}
+#mine-command-v2 .mc-mine span:not(.mc-mine-logo){display:block;color:var(--mc-muted);font-size:11px;margin-top:3px}
+#mine-command-v2 .mc-platform-title{align-self:stretch;display:flex;flex-direction:column;justify-content:center;position:relative;text-align:center}
+#mine-command-v2 .mc-platform-title:before{content:"";position:absolute;inset:7px -23px 0;background:linear-gradient(180deg,#1b52704d,#143a5400);clip-path:polygon(0 0,100% 0,93% 100%,7% 100%);border-top:2px solid #2f849c}
+#mine-command-v2 h1{font-size:clamp(19px,1.65vw,29px);letter-spacing:2px;white-space:nowrap;position:relative;text-shadow:0 2px 16px #319db755}
+#mine-command-v2 .mc-title-rule{display:flex;gap:5px;align-items:center;justify-content:center;margin-top:8px;position:relative}
+#mine-command-v2 .mc-title-rule span{height:1px;width:24%;background:linear-gradient(90deg,transparent,#4494af)}
+#mine-command-v2 .mc-title-rule span:last-child{transform:rotate(180deg)}
+#mine-command-v2 .mc-title-rule i{width:4px;height:4px;transform:rotate(45deg);background:#4bc0da}
+#mine-command-v2 .mc-time{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+#mine-command-v2 .mc-time strong{display:block;font-size:13px;letter-spacing:.5px}
+#mine-command-v2 .mc-time>span{display:flex;justify-content:flex-end;align-items:center;color:var(--mc-muted);font-size:11px;margin-top:5px;gap:6px}
+#mine-command-v2 .mc-time em{font-style:normal;margin-left:8px;color:#c6d8e9}
+#mine-command-v2 .mc-status-dot{width:5px;height:5px;background:var(--mc-cyan);border-radius:50%}
+#mine-command-v2 .mc-navigation{display:flex;justify-content:center;gap:6px;padding:10px 0 9px;border-bottom:1px solid #1c3d58}
+#mine-command-v2 .mc-navigation button{min-width:0;flex:1;max-width:160px;padding:9px 8px;border:1px solid #244964;background:linear-gradient(180deg,#143958,#0c2643);clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);font-size:14px;letter-spacing:1px;color:#a7c2d9}
+#mine-command-v2 .mc-navigation button[aria-pressed="true"]{background:linear-gradient(180deg,#1b5d7c,#123d5d);color:#e6fbff;border-color:#47bcd9;box-shadow:inset 0 -2px #49c4e5}
+#mine-command-v2 .mc-navigation button:hover{color:#fff;background:#184b69}
+#mine-command-v2 .mc-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:45px;color:var(--mc-muted);font-size:12px}
+#mine-command-v2 .mc-location,#mine-command-v2 .mc-playback{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#mine-command-v2 .mc-location strong{color:#dcebf8;font-size:12px}
+#mine-command-v2 .mc-divider{display:inline-block;width:1px;height:13px;background:#2a506c;margin:0 4px}
+#mine-command-v2 .mc-toolbar button{background:transparent;border:0;color:var(--mc-muted);font-size:11px;padding:4px 7px}
+#mine-command-v2 .mc-toolbar button.active{color:var(--mc-cyan);background:#153f5b}
+#mine-command-v2 .mc-toolbar .mc-next-button{border:1px solid #2a5a76;color:#b4dce9}
+#mine-command-v2 .mc-status-band{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr 1.2fr;background:linear-gradient(100deg,#13344f,#0c2846);border-block:1px solid #2a4b65;margin:0 0 14px;padding:11px 0 12px;position:relative}
+#mine-command-v2 .mc-status-band:before,#mine-command-v2 .mc-status-band:after{content:"";position:absolute;width:30px;height:2px;top:-1px;background:#49c4e5}
+#mine-command-v2 .mc-status-band:before{left:0}#mine-command-v2 .mc-status-band:after{right:0}
+#mine-command-v2 .mc-status-band>div{padding:0 19px;position:relative;min-width:0}
+#mine-command-v2 .mc-status-band>div+div{border-left:1px solid #2a4d67}
+#mine-command-v2 .mc-status-band span{display:block;color:var(--mc-muted);font-size:12px}
+#mine-command-v2 .mc-status-band span b{font-size:10px;margin-left:5px;color:#97d8ec;border:1px solid #2d607a;padding:0 5px}
+#mine-command-v2 .mc-status-band strong{display:block;font-size:32px;font-weight:500;letter-spacing:1px;line-height:1.35;font-variant-numeric:tabular-nums}
+#mine-command-v2 .mc-status-band small{font-size:12px;color:var(--mc-muted);letter-spacing:0;margin-left:5px}
+#mine-command-v2 .mc-status-band .mc-word{font-size:23px;line-height:1.88;white-space:nowrap;color:#d0e1ef}
+#mine-command-v2 .mc-status-band em{display:block;font-size:10px;font-style:normal;color:#83a2bf}
+#mine-command-v2 .mc-red{color:var(--mc-red)}#mine-command-v2 .mc-amber{color:var(--mc-amber)}#mine-command-v2 .mc-muted{color:var(--mc-muted);font-size:11px}
+#mine-command-v2 .mc-dashboard{display:grid;grid-template-columns:minmax(180px,.95fr) minmax(0,2.3fr) minmax(210px,1.04fr);gap:13px;align-items:start}
+#mine-command-v2 .mc-left-rail,#mine-command-v2 .mc-center-rail,#mine-command-v2 .mc-right-rail{display:grid;gap:13px;min-width:0}
+#mine-command-v2 .mc-panel{min-width:0;background:linear-gradient(110deg,#102d49ed,#0c2641f2);border:1px solid #234a65;position:relative}
+#mine-command-v2 .mc-panel:after{content:"";position:absolute;width:21px;height:2px;right:-1px;bottom:-1px;background:#2b6d8d}
+#mine-command-v2 .mc-panel-heading{height:39px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid #234a65;background:linear-gradient(90deg,#17436266,#0e2b4800);position:relative}
+#mine-command-v2 .mc-panel-heading:before{content:"";position:absolute;left:-1px;top:-1px;width:34px;height:2px;background:#49c4e5}
+#mine-command-v2 .mc-panel-heading h2{font-size:14px;letter-spacing:1px;font-weight:600;white-space:nowrap}
+#mine-command-v2 .mc-panel-heading h2:before{content:"";display:inline-block;width:3px;height:10px;background:var(--mc-cyan);margin-right:8px;transform:skew(-13deg)}
+#mine-command-v2 .mc-text-button{font-size:11px;background:none;border:0;padding:3px 0;color:#6bcce4;white-space:nowrap}
+#mine-command-v2 .mc-overview{display:flex;gap:16px;align-items:center;padding:17px 14px 14px;justify-content:space-between}
+#mine-command-v2 .mc-status-ring{width:111px;height:111px;flex-shrink:0;position:relative}
+#mine-command-v2 .mc-status-ring svg{width:100%;height:100%}
+#mine-command-v2 .mc-status-ring>div{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#mine-command-v2 .mc-status-ring strong{font-size:31px;font-weight:500;line-height:1.2;color:#deeffd}
+#mine-command-v2 .mc-status-ring span{font-size:10px;color:var(--mc-muted);margin-top:4px}
+#mine-command-v2 .mc-overview dl{flex:1;min-width:0}
+#mine-command-v2 .mc-overview dl>div{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0}
+#mine-command-v2 .mc-overview dt{font-size:12px;color:#a8c1d6;white-space:nowrap}
+#mine-command-v2 .mc-overview dd{font-size:17px;font-variant-numeric:tabular-nums}
+#mine-command-v2 .mc-dot{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:7px;vertical-align:middle}
+#mine-command-v2 .mc-dot.cyan{background:#49c4e5}#mine-command-v2 .mc-dot.red{background:#ff8c96}#mine-command-v2 .mc-dot.grey{background:#627e95}
+#mine-command-v2 .mc-overview-footer{margin:0 12px 12px;border-top:1px solid #22455f;padding-top:8px;display:flex;justify-content:space-between;color:var(--mc-muted);font-size:10px}
+#mine-command-v2 .mc-overview-footer strong{font-size:11px;color:#c1d6e8;font-weight:400}
+#mine-command-v2 .mc-point-table table{width:100%;border-collapse:collapse;table-layout:fixed;text-align:left}
+#mine-command-v2 .mc-point-table th{font-size:10px;color:#809eb8;font-weight:400;padding:10px 8px 8px;background:#0a233c77}
+#mine-command-v2 .mc-point-table td{padding:12px 8px;border-bottom:1px solid #21435c;font-size:12px}
+#mine-command-v2 .mc-point-table tr.selected td{background:#18466266}
+#mine-command-v2 .mc-point-table th:nth-child(1){width:22%}#mine-command-v2 .mc-point-table th:nth-child(2){width:27%}#mine-command-v2 .mc-point-table th:nth-child(3){width:18%}
+#mine-command-v2 .mc-point-table button{background:none;border:0;padding:0;font-weight:600;color:#d0e9f5}
+#mine-command-v2 .mc-point-table .mc-cell-up{color:var(--mc-amber)}#mine-command-v2 .mc-point-table .mc-cell-down{color:#70c7b8}
+#mine-command-v2 .mc-point-table .mc-cell-normal{font-size:10px;color:#92c9d8}
+#mine-command-v2 .mc-point-table .mc-cell-alert{font-size:10px;color:var(--mc-red)}
+#mine-command-v2 .mc-point-foot{display:flex;justify-content:space-between;align-items:center;padding:11px 10px;font-size:10px;color:var(--mc-muted)}
+#mine-command-v2 .mc-point-foot b{font-weight:400;color:#c5d8e9;margin-left:4px}
+#mine-command-v2 .mc-point-foot button{padding:0;border:0;background:none;font-size:10px;color:#6ccbe4}
+#mine-command-v2 .mc-quality-panel{padding-bottom:13px}
+#mine-command-v2 .mc-quality-top{display:flex;align-items:baseline;justify-content:space-between;margin:13px 12px 7px;font-size:11px;color:var(--mc-muted)}
+#mine-command-v2 .mc-quality-top strong{font-size:25px;color:#64d3cc;font-weight:500}
+#mine-command-v2 .mc-quality-top small{font-size:11px;margin-left:3px}
+#mine-command-v2 .mc-quality-track{height:4px;background:#1c3b51;margin:0 12px}
+#mine-command-v2 .mc-quality-track span{display:block;height:100%;width:99.96%;background:linear-gradient(90deg,#2392b6,#6bd2c7)}
+#mine-command-v2 .mc-quality-figures{display:flex;justify-content:space-between;gap:10px;padding:13px 12px 8px}
+#mine-command-v2 .mc-quality-figures span{display:block;font-size:10px;color:var(--mc-muted);margin-bottom:4px}
+#mine-command-v2 .mc-quality-figures strong{font-size:16px;letter-spacing:.5px;font-weight:500}
+#mine-command-v2 .mc-quality-meta{margin:4px 12px 0;padding-top:8px;border-top:1px solid #23475f;display:flex;justify-content:space-between;font-size:10px;color:var(--mc-muted)}
+#mine-command-v2 .mc-quality-meta b{font-weight:400;color:#82cbbb}
+#mine-command-v2 .mc-scene-tools{display:flex;align-items:center;gap:12px}
+#mine-command-v2 .mc-scene-selected{border:1px solid #2a617c;color:#75d2e9;padding:1px 8px;font-size:10px}
+#mine-command-v2 .mc-mine-scene{height:326px;position:relative;background:radial-gradient(ellipse at 50% 60%,#164a6566,transparent 62%),linear-gradient(145deg,#071b30,#0a213b);overflow:hidden}
+#mine-command-v2 .mc-mine-geometry{width:100%;height:100%;position:absolute;inset:0}
+#mine-command-v2 .mc-scene-label{position:absolute;color:#94b8cd;font-size:11px;pointer-events:none;white-space:nowrap}
+#mine-command-v2 .mc-label-in{top:20%;left:32%;transform:rotate(-10deg);color:#7ac7c8}
+#mine-command-v2 .mc-label-out{bottom:9%;right:28%;transform:rotate(-10deg);color:#77bcd5}
+#mine-command-v2 .mc-label-face{left:37%;top:51%;transform:rotate(-10deg);font-size:13px;color:#91bdd3;letter-spacing:1px}
+#mine-command-v2 .mc-label-machine{left:57%;top:37%;font-size:10px;color:#d7b581}
+#mine-command-v2 .mc-map-point{position:absolute;background:#092941ee;border:1px solid #306780;color:#d7eff7;border-radius:3px;padding:6px 10px;min-width:79px;text-align:left;box-shadow:0 3px 12px #03122266}
+#mine-command-v2 .mc-map-point>span{display:block;font-size:10px;color:#a5c6d9;line-height:1.2}
+#mine-command-v2 .mc-map-point strong{font-size:19px;font-weight:500;letter-spacing:.5px}
+#mine-command-v2 .mc-map-point small{font-size:10px;margin-left:3px;color:#9ab4c8}
+#mine-command-v2 .mc-map-point.selected{border-color:#70d4e7;background:#133d59;box-shadow:0 0 20px #49c4e522}
+#mine-command-v2 .mc-map-point.selected strong{color:#94e4f2}
+#mine-command-v2 .mc-point-t0.selected{border-color:#ff939c;background:#402e40e6;box-shadow:0 0 20px #f2697930}
+#mine-command-v2 .mc-point-t0.selected strong{color:#ffa0a8}
+#mine-command-v2 .mc-point-t0{right:5%;bottom:15%}#mine-command-v2 .mc-point-t1{left:10%;bottom:17%}#mine-command-v2 .mc-point-t2{left:5%;top:16%}#mine-command-v2 .mc-point-t5{right:6%;top:8%}
+#mine-command-v2 .mc-scene-key{position:absolute;bottom:10px;left:13px;display:flex;gap:12px;font-size:10px;color:#89abc3}
+#mine-command-v2 .mc-scene-key .mc-dot{margin-right:4px;width:4px;height:4px}
+#mine-command-v2 .mc-scene-bottom{padding:8px 12px;border-top:1px solid #234862;display:flex;justify-content:space-between;gap:10px;align-items:center;color:#8aa9c3;font-size:11px;flex-wrap:wrap}
+#mine-command-v2 .mc-scene-bottom strong{color:var(--mc-cyan);margin-left:5px}
+#mine-command-v2 .mc-scene-bottom b{margin-left:5px;font-weight:500}
+#mine-command-v2 .mc-trend-tabs{display:flex;gap:3px}
+#mine-command-v2 .mc-trend-tabs button{background:none;border:0;border-bottom:2px solid transparent;color:#89a9c3;font-size:10px;padding:11px 6px 10px}
+#mine-command-v2 .mc-trend-tabs button.active{color:#80d9ed;border-bottom-color:#49c4e5}
+#mine-command-v2 .mc-chart-legend{display:flex;gap:14px;padding:10px 13px 2px;align-items:center;font-size:10px;color:#8caec6;flex-wrap:wrap}
+#mine-command-v2 .mc-chart-legend b{font-weight:400}
+#mine-command-v2 .mc-chart-period{margin-left:auto;font-variant-numeric:tabular-nums}
+#mine-command-v2 .mc-line-swatch{display:inline-block;width:14px;vertical-align:middle;border-top:2px solid var(--mc-cyan);margin-right:5px}
+#mine-command-v2 .mc-line-swatch.red{border-color:#e78087;border-top-style:dashed}
+#mine-command-v2 .mc-trend-chart{height:218px;padding:0 7px 5px;min-width:0}
+#mine-command-v2 .mc-trend-chart svg{display:block;width:100%;height:100%;font-family:inherit}
+#mine-command-v2 .mc-live-label{font-size:10px;color:#d9828b;display:flex;align-items:center;gap:5px}
+#mine-command-v2 .mc-live-label:before{content:"";height:4px;width:4px;background:#ff858f;border-radius:50%}
+#mine-command-v2 .mc-alert-top{display:flex;align-items:center;gap:10px;padding:14px 12px 10px}
+#mine-command-v2 .mc-alert-square{padding:7px 9px;border:1px solid #974b63;background:#612e454d;color:#ff949e;white-space:nowrap;font-size:12px}
+#mine-command-v2 .mc-alert-top strong{display:block;font-size:12px}
+#mine-command-v2 .mc-alert-top div>span{display:block;font-size:10px;color:var(--mc-muted);margin-top:4px}
+#mine-command-v2 .mc-alert-values{display:flex;padding:0 12px 12px;gap:30px}
+#mine-command-v2 .mc-alert-values span{font-size:10px;color:var(--mc-muted);display:block}
+#mine-command-v2 .mc-alert-values strong{display:block;font-size:25px;font-weight:500;font-variant-numeric:tabular-nums}
+#mine-command-v2 .mc-alert-values>div:first-child strong{color:#ff909a}
+#mine-command-v2 .mc-alert-values small{font-size:11px;margin-left:3px}
+#mine-command-v2 .mc-alert-foot{border-top:1px solid #23455f;padding:8px 12px;display:flex;justify-content:space-between;align-items:center}
+#mine-command-v2 .mc-tag{font-size:10px;display:inline-block;padding:2px 6px;border-radius:2px;white-space:nowrap}
+#mine-command-v2 .mc-tag.amber{color:#e4b873;background:#4b3e313d;border:1px solid #6d614a}
+#mine-command-v2 .mc-tag.red{color:#ff99a0;background:#68344744;border:1px solid #8c5062}
+#mine-command-v2 .mc-tag.orange{color:#e7bb73;background:#4b3e313d;border:1px solid #6d614a}
+#mine-command-v2 .mc-tag.grey{color:#8ca9be;background:#16364d;border:1px solid #31536a}
+#mine-command-v2 .mc-ai-state{font-size:10px;color:#b6abc8;border:1px solid #4d536d;padding:1px 5px}
+#mine-command-v2 .mc-ai-tabs{display:flex;gap:20px;margin:0 12px;border-bottom:1px solid #23435c}
+#mine-command-v2 .mc-ai-tabs button{padding:10px 0 8px;border:0;border-bottom:2px solid transparent;background:none;color:#8ca9c3;font-size:11px}
+#mine-command-v2 .mc-ai-tabs button.active{color:#74d4e9;border-bottom-color:#49c4e5}
+#mine-command-v2 .mc-ai-content{padding:12px;min-height:173px;font-size:12px;line-height:1.8}
+#mine-command-v2 .mc-ai-content strong{color:#f0b6ba;font-weight:500}
+#mine-command-v2 .mc-ai-content p+p{margin-top:8px;color:#8eafc7;font-size:11px}
+#mine-command-v2 .mc-ai-ref{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;margin-top:12px;background:#153b5777;border-left:2px solid #4597b8;font-size:10px;color:#93bdd4;gap:8px}
+#mine-command-v2 .mc-ai-ref button{border:0;background:none;color:#61c7e3;font-size:10px;padding:0;white-space:nowrap}
+#mine-command-v2 .mc-ai-actions{display:flex;padding:0 12px 12px;gap:8px}
+#mine-command-v2 .mc-button{padding:6px 12px;background:#153851;border:1px solid #32617a;font-size:11px;color:#bbd8e9;border-radius:2px}
+#mine-command-v2 .mc-button.primary{background:linear-gradient(100deg,#137b9b,#1c6286);border-color:#2aa4c1;color:#e6fbff}
+#mine-command-v2 .mc-button:disabled{opacity:.5;cursor:default}
+#mine-command-v2 .mc-task-step{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:11px;color:#a9c5d9}
+#mine-command-v2 .mc-task-step i{display:grid;place-items:center;width:17px;height:17px;border-radius:50%;font-size:10px;font-style:normal;background:#225169;color:#65d1d7}
+#mine-command-v2 .mc-task-step.wait{color:#8ca4bc}#mine-command-v2 .mc-task-step.wait i{background:#2d3850;color:#b7a7bd}
+#mine-command-v2 .mc-todo-item{display:flex;gap:9px;align-items:center;padding:12px;border-bottom:1px solid #22445e}
+#mine-command-v2 .mc-todo-item:last-child{border-bottom:0}
+#mine-command-v2 .mc-todo-index{font-size:13px;font-variant-numeric:tabular-nums;color:#e4b677;align-self:start;margin-top:1px}
+#mine-command-v2 .mc-todo-index.muted{color:#6d9fb8}
+#mine-command-v2 .mc-todo-item div{flex:1;min-width:0}
+#mine-command-v2 .mc-todo-item strong{font-size:11px;display:block;font-weight:500}
+#mine-command-v2 .mc-todo-item span:not(.mc-todo-index){font-size:10px;display:block;color:#89a6bf;margin-top:2px}
+#mine-command-v2 .mc-todo-item button{font-size:10px;color:#70c6df;background:none;border:0;padding:0;white-space:nowrap}
+#mine-command-v2 .mc-event-log{grid-column:1/-1}
+#mine-command-v2 .mc-event-filters{display:flex;align-items:center;gap:8px}
+#mine-command-v2 .mc-event-filters button{background:none;border:0;padding:2px 6px;color:#8eabc4;font-size:10px}
+#mine-command-v2 .mc-event-filters button.active{background:#1a4864;color:#6fd0e7}
+#mine-command-v2 .mc-event-filters span{margin-left:5px}
+#mine-command-v2 .mc-log-table-wrap{padding:0 12px 5px}
+#mine-command-v2 .mc-log-table{width:100%;border-collapse:collapse;text-align:left;white-space:nowrap;font-size:11px}
+#mine-command-v2 .mc-log-table th{padding:9px 10px;color:#829fb9;font-size:10px;font-weight:400;background:#0c233a88}
+#mine-command-v2 .mc-log-table td{padding:9px 10px;border-top:1px solid #203e57;color:#b5ccdf}
+#mine-command-v2 .mc-log-table tbody tr:first-child{background:#33293b44}
+#mine-command-v2 .mc-log-table button{border:0;padding:0;background:none;color:#66c9e4;font-size:11px}
+#mine-command-v2 .mc-dialog-backdrop{position:absolute;inset:0;z-index:10;background:#020d1fbb;display:flex;align-items:flex-start;justify-content:center;padding:115px 20px 25px}
+#mine-command-v2 [hidden]{display:none!important}
+#mine-command-v2 .mc-detail-dialog{width:min(700px,100%);background:#102c48;border:1px solid #4389a6;box-shadow:0 18px 80px #0009;color:#d3e7f5}
+#mine-command-v2 .mc-detail-dialog>header{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border-bottom:1px solid #2c526c;background:linear-gradient(100deg,#174665,#102b48)}
+#mine-command-v2 .mc-dialog-kicker{font-size:11px;color:#8bb4ce}
+#mine-command-v2 .mc-detail-dialog h2{font-size:18px;font-weight:500;margin-top:3px}
+#mine-command-v2 .mc-dialog-close{font-size:24px;padding:0 4px;border:0;background:none;color:#b6d2e7}
+#mine-command-v2 .mc-dialog-body{padding:20px 22px;font-size:13px;line-height:1.9}
+#mine-command-v2 .mc-dialog-body h3{font-size:14px;font-weight:500;margin:15px 0 8px;color:#d7f2ff}
+#mine-command-v2 .mc-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+#mine-command-v2 .mc-detail-grid>div{border:1px solid #2b5069;padding:11px 13px;background:#10334d}
+#mine-command-v2 .mc-detail-grid small{display:block;font-size:11px;color:#89acc7;margin-bottom:3px}
+#mine-command-v2 .mc-dialog-body table{width:100%;border-collapse:collapse;text-align:left;font-size:12px}
+#mine-command-v2 .mc-dialog-body th{font-weight:400;color:#81a8c1;border-bottom:1px solid #31556c;padding:7px}
+#mine-command-v2 .mc-dialog-body td{padding:8px 7px;border-bottom:1px solid #28485f}
+#mine-command-v2 .mc-case-stages{display:flex;gap:4px;margin:15px 0 20px;flex-wrap:wrap}
+#mine-command-v2 .mc-case-stages span{padding:7px 11px;background:#143b56;color:#8eafc8;font-size:12px;border-bottom:2px solid #355a71}
+#mine-command-v2 .mc-case-stages .current{border-bottom-color:#49c4e5;color:#8ee2f2;background:#1a4d68}
+#mine-command-v2 .mc-case-note{display:block;width:100%;min-height:80px;resize:vertical;background:#0a223b;border:1px solid #345c74;color:#d5eaf7;font:inherit;font-size:12px;padding:11px;margin:12px 0}
+#mine-command-v2 .mc-detail-dialog>footer{display:flex;align-items:center;justify-content:space-between;padding:13px 22px;background:#0c243e;border-top:1px solid #2b4d66;gap:10px}
+#mine-command-v2 .mc-dialog-message{font-size:11px;color:#71cab7}
+@media(min-width:1400px){#mine-command-v2{font-size:15px;padding:0 22px 18px}#mine-command-v2 .mc-dashboard{gap:16px;grid-template-columns:minmax(230px,.95fr) minmax(0,2.3fr) minmax(275px,1.04fr)}#mine-command-v2 .mc-left-rail,#mine-command-v2 .mc-center-rail,#mine-command-v2 .mc-right-rail{gap:16px}#mine-command-v2 .mc-masthead{height:96px}#mine-command-v2 .mc-mine-scene{height:350px}#mine-command-v2 .mc-panel-heading{height:43px}#mine-command-v2 .mc-panel-heading h2{font-size:16px}#mine-command-v2 .mc-trend-chart{height:237px}#mine-command-v2 .mc-point-table td{padding:14px 12px;font-size:14px}#mine-command-v2 .mc-point-table th{padding:11px 12px;font-size:12px}#mine-command-v2 .mc-overview{padding:20px;gap:20px}#mine-command-v2 .mc-status-ring{width:123px;height:123px}#mine-command-v2 .mc-ai-content{font-size:14px;min-height:205px}#mine-command-v2 .mc-ai-content p+p{font-size:12px}#mine-command-v2 .mc-log-table{font-size:13px}#mine-command-v2 .mc-log-table th{font-size:12px}#mine-command-v2 .mc-map-point strong{font-size:23px}#mine-command-v2 .mc-alert-top strong{font-size:14px}#mine-command-v2 .mc-todo-item{padding:14px}#mine-command-v2 .mc-todo-item strong{font-size:13px}}
+@media(max-width:1050px){#mine-command-v2{padding-inline:12px}#mine-command-v2 .mc-dashboard{gap:10px;grid-template-columns:minmax(175px,.95fr) minmax(0,2.25fr) minmax(200px,1.04fr)}#mine-command-v2 .mc-left-rail,#mine-command-v2 .mc-center-rail,#mine-command-v2 .mc-right-rail{gap:10px}#mine-command-v2 .mc-status-band>div{padding-inline:13px}#mine-command-v2 .mc-overview{gap:8px;padding:13px 10px}#mine-command-v2 .mc-status-ring{width:88px;height:88px}#mine-command-v2 .mc-overview dl>div{gap:4px}#mine-command-v2 .mc-overview dt{font-size:10px}#mine-command-v2 .mc-overview dd{font-size:14px}#mine-command-v2 .mc-point-table th,#mine-command-v2 .mc-point-table td{padding-inline:7px}#mine-command-v2 .mc-map-point{min-width:69px;padding:5px 7px}#mine-command-v2 .mc-map-point strong{font-size:17px}#mine-command-v2 .mc-label-face{left:34%;font-size:11px}#mine-command-v2 .mc-panel-heading{padding-inline:10px}#mine-command-v2 .mc-panel-heading h2{font-size:13px}#mine-command-v2 .mc-trend-tabs button{padding-inline:4px;font-size:10px}#mine-command-v2 .mc-scene-panel .mc-panel-heading{height:39px}#mine-command-v2 .mc-alert-top{padding-inline:10px;gap:7px}#mine-command-v2 .mc-alert-top strong{font-size:11px}#mine-command-v2 .mc-alert-square{padding:5px 7px;font-size:10px}#mine-command-v2 .mc-alert-values{gap:24px;padding-inline:10px}#mine-command-v2 .mc-ai-content{padding:10px;font-size:11px}#mine-command-v2 .mc-ai-actions{padding-inline:10px}#mine-command-v2 .mc-button{padding-inline:9px}#mine-command-v2 .mc-log-table th,#mine-command-v2 .mc-log-table td{padding-inline:7px}}
+@media(max-width:850px){#mine-command-v2 .mc-masthead{grid-template-columns:1fr auto;height:auto;min-height:114px;padding:12px 0;gap:8px}#mine-command-v2 .mc-platform-title{grid-column:1/-1;grid-row:1}#mine-command-v2 .mc-platform-title:before{inset:-5px 15px -7px}#mine-command-v2 h1{font-size:21px}#mine-command-v2 .mc-mine{grid-column:1;grid-row:2}#mine-command-v2 .mc-mine-logo{display:none}#mine-command-v2 .mc-mine strong{font-size:12px}#mine-command-v2 .mc-time{grid-column:2;grid-row:2}#mine-command-v2 .mc-navigation{flex-wrap:wrap;gap:5px}#mine-command-v2 .mc-navigation button{flex:1 0 20%;font-size:12px;padding-block:7px}#mine-command-v2 .mc-toolbar{flex-wrap:wrap;padding:8px 0;gap:7px}#mine-command-v2 .mc-status-band>div{padding-inline:10px}#mine-command-v2 .mc-status-band strong{font-size:25px}#mine-command-v2 .mc-status-band .mc-word{font-size:17px;line-height:2}#mine-command-v2 .mc-status-band em{font-size:9px}#mine-command-v2 .mc-dashboard{grid-template-columns:195px minmax(0,1fr)}#mine-command-v2 .mc-right-rail{grid-column:1/-1;grid-template-columns:1fr 1.15fr 1fr;align-items:start}#mine-command-v2 .mc-right-rail .mc-panel{min-height:220px}#mine-command-v2 .mc-ai-content{min-height:166px}#mine-command-v2 .mc-mine-scene{height:320px}#mine-command-v2 .mc-log-table-wrap{overflow-x:auto}#mine-command-v2 .mc-log-table{min-width:700px}}
+@media(max-width:600px){#mine-command-v2{padding-inline:10px}#mine-command-v2 h1{font-size:17px;letter-spacing:.5px}#mine-command-v2 .mc-masthead{min-height:118px}#mine-command-v2 .mc-mine span:not(.mc-mine-logo){font-size:10px}#mine-command-v2 .mc-time strong{font-size:11px}#mine-command-v2 .mc-time>span{font-size:10px}#mine-command-v2 .mc-time em{margin-left:2px}#mine-command-v2 .mc-navigation button{font-size:11px;flex-basis:25%;letter-spacing:0}#mine-command-v2 .mc-location{gap:7px}#mine-command-v2 .mc-location strong{font-size:11px}#mine-command-v2 .mc-playback{width:100%;justify-content:flex-end;font-size:11px}#mine-command-v2 .mc-status-band{grid-template-columns:1fr 1fr;padding:0}#mine-command-v2 .mc-status-band>div{padding:10px 12px;border-bottom:1px solid #254a64}#mine-command-v2 .mc-status-band>div+div{border-left:0}#mine-command-v2 .mc-status-band>div:nth-child(even){border-left:1px solid #254a64}#mine-command-v2 .mc-status-band>div:last-child{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;align-items:center}#mine-command-v2 .mc-status-band>div:last-child strong{grid-column:2;grid-row:1/3;text-align:right}#mine-command-v2 .mc-status-band em{font-size:10px}#mine-command-v2 .mc-dashboard{grid-template-columns:1fr}#mine-command-v2 .mc-center-rail{grid-row:1}#mine-command-v2 .mc-left-rail{grid-row:2;grid-template-columns:1fr}#mine-command-v2 .mc-right-rail{grid-row:3;grid-template-columns:1fr}#mine-command-v2 .mc-event-log{grid-row:4}#mine-command-v2 .mc-panel-heading h2{font-size:14px}#mine-command-v2 .mc-right-rail .mc-panel{min-height:0}#mine-command-v2 .mc-ai-content{font-size:13px;min-height:0}#mine-command-v2 .mc-ai-content p+p{font-size:12px}#mine-command-v2 .mc-status-ring{width:110px;height:110px}#mine-command-v2 .mc-overview{justify-content:space-around;padding:16px 25px;gap:25px}#mine-command-v2 .mc-overview dt{font-size:13px}#mine-command-v2 .mc-overview dd{font-size:18px}#mine-command-v2 .mc-point-table th{font-size:12px;padding:11px}#mine-command-v2 .mc-point-table td{font-size:14px;padding:13px 11px}#mine-command-v2 .mc-point-table .mc-cell-normal,#mine-command-v2 .mc-point-table .mc-cell-alert{font-size:12px}#mine-command-v2 .mc-mine-scene{height:300px}#mine-command-v2 .mc-map-point{min-width:67px}#mine-command-v2 .mc-point-t0{right:3%;bottom:17%}#mine-command-v2 .mc-point-t1{left:3%;bottom:18%}#mine-command-v2 .mc-point-t2{left:3%;top:16%}#mine-command-v2 .mc-point-t5{right:3%;top:8%}#mine-command-v2 .mc-label-face{left:35%;top:55%;font-size:11px}#mine-command-v2 .mc-label-machine{left:53%;top:38%}#mine-command-v2 .mc-scene-bottom{font-size:10px;gap:6px}#mine-command-v2 .mc-trend-tabs button{font-size:10px;padding-inline:5px}#mine-command-v2 .mc-panel-heading{gap:5px}#mine-command-v2 .mc-dialog-backdrop{padding:70px 10px 20px}#mine-command-v2 .mc-dialog-body{padding:15px;font-size:12px}#mine-command-v2 .mc-detail-dialog>header{padding:14px 15px}#mine-command-v2 .mc-detail-dialog>footer{padding:12px 15px}#mine-command-v2 .mc-detail-grid{grid-template-columns:1fr}#mine-command-v2 .mc-dialog-body table{font-size:10px}}
+@media(min-width:1400px){#mine-command-v2 .mc-masthead{height:78px}#mine-command-v2 .mc-navigation{padding-block:6px}#mine-command-v2 .mc-navigation button{padding-block:7px}#mine-command-v2 .mc-toolbar{min-height:36px}#mine-command-v2 .mc-status-band{padding-block:7px;margin-bottom:12px}#mine-command-v2 .mc-status-band strong{font-size:30px;line-height:1.2}#mine-command-v2 .mc-status-band .mc-word{font-size:22px;line-height:1.64}#mine-command-v2 .mc-dashboard,#mine-command-v2 .mc-left-rail,#mine-command-v2 .mc-center-rail,#mine-command-v2 .mc-right-rail{gap:12px}#mine-command-v2 .mc-panel-heading{height:36px}#mine-command-v2 .mc-panel-heading h2{font-size:15px}#mine-command-v2 .mc-overview{padding:10px 15px;gap:16px}#mine-command-v2 .mc-status-ring{width:88px;height:88px}#mine-command-v2 .mc-status-ring strong{font-size:27px}#mine-command-v2 .mc-overview-footer{padding-top:6px;margin-bottom:10px}#mine-command-v2 .mc-point-table th{font-size:11px;padding:6px 10px}#mine-command-v2 .mc-point-table td{font-size:13px;padding:8px 10px}#mine-command-v2 .mc-point-foot{padding:7px 10px}#mine-command-v2 .mc-quality-panel{padding-bottom:10px}#mine-command-v2 .mc-quality-top{margin-top:8px;margin-bottom:5px}#mine-command-v2 .mc-quality-top strong{font-size:21px}#mine-command-v2 .mc-quality-figures{padding-block:9px 5px}#mine-command-v2 .mc-quality-meta{padding-top:6px}#mine-command-v2 .mc-mine-scene{height:275px}#mine-command-v2 .mc-scene-bottom{padding-block:7px}#mine-command-v2 .mc-trend-chart{height:180px}#mine-command-v2 .mc-trend-tabs button{padding-block:8px 7px}#mine-command-v2 .mc-chart-legend{padding-top:8px}#mine-command-v2 .mc-alert-top{padding-block:12px 8px}#mine-command-v2 .mc-alert-top strong{font-size:13px}#mine-command-v2 .mc-alert-values{padding-bottom:10px}#mine-command-v2 .mc-alert-values strong{font-size:24px}#mine-command-v2 .mc-alert-foot{padding-block:7px}#mine-command-v2 .mc-ai-content{min-height:0;font-size:13px;line-height:1.75;padding-block:10px}#mine-command-v2 .mc-ai-tabs button{padding-block:8px 6px}#mine-command-v2 .mc-ai-actions{padding-bottom:10px}#mine-command-v2 .mc-ai-ref{margin-top:10px}#mine-command-v2 .mc-todo-item{padding:10px 12px}#mine-command-v2 .mc-todo-item strong{font-size:12px}#mine-command-v2 .mc-log-table{font-size:12px}#mine-command-v2 .mc-log-table th{font-size:11px;padding-block:7px}#mine-command-v2 .mc-log-table td{padding-block:5px}}
+@media(min-width:1400px){#mine-command-v2 .mc-masthead{height:72px}#mine-command-v2 .mc-toolbar{min-height:32px}#mine-command-v2 .mc-overview dl>div{margin-block:4px}#mine-command-v2 .mc-overview dd{font-size:16px;line-height:1.4}#mine-command-v2 .mc-log-table td{padding-block:3px}}
+</style>
+<script>
+(() => {
+  const root=document.getElementById('mine-command-v2');
+  const points={T0:{value:.86,base:.33,trend:'↑',alert:true},T1:{value:.56,base:.67,trend:'↓',alert:false},T2:{value:.42,base:.42,trend:'—',alert:false},T5:{value:.38,base:.29,trend:'↑',alert:false}};
+  const records=[{time:'04-07 08:32:48',point:'T0',type:'实测超限',level:'红色',peak:'0.86',quality:'疑似标校',state:'待确认',active:true},{time:'04-07 07:12:00',point:'T0',type:'实测高位',level:'橙色',peak:'0.69',quality:'—',state:'待复核',active:false},{time:'04-06 22:18:31',point:'T5',type:'实测超限',level:'红色',peak:'0.81',quality:'已核实',state:'已复核',active:false},{time:'04-06 14:06:12',point:'T2',type:'实测高位',level:'橙色',peak:'0.68',quality:'—',state:'已复核',active:false}];
+  const saved=window.openai?.widgetState?.modelContent;
+  const state={point:points[saved?.point]?saved.point:'T0',chart:['trend','compare','forecast'].includes(saved?.chart)?saved.chart:'trend',filter:'all',ai:'result',playing:true,range:60,timeOffset:0,confirmed:false,reviewed:false};
+  function clock(minutes){const m=((minutes%1440)+1440)%1440;return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');}
+  const colors={cyan:'#49c4e5',muted:'#8baac2',grid:'#24465f',red:'#ff8c96',green:'#76cec0',amber:'#e5bd76'};
+  const series=Object.fromEntries(Object.entries(points).map(([id,p])=>[id,Array.from({length:31},(_,i)=>{
+    const raw=id==='T0'?[.32,.33,.35,.32,.34,.37,.36,.4,.39,.41,.45,.44,.46,.5,.49,.52,.56,.55,.58,.62,.64,.65,.69,.73,.75,.77,.81,.82,.84,.83,.86][i]:p.base+(p.value-p.base)*i/30+Math.sin(i*1.35+id.charCodeAt(1))*.025;
+    return Number((i===30?p.value:raw).toFixed(3));
+  })]));
+  function persist(){window.openai?.setWidgetState?.({modelContent:{point:state.point,chart:state.chart},privateContent:null}).catch(()=>{});}
+  function renderPoints(){
+    root.querySelector('.mc-point-table').innerHTML=`<table><thead><tr><th>测点</th><th>浓度</th><th>趋势</th><th>状态</th></tr></thead><tbody>${Object.entries(points).map(([id,p])=>`<tr class="${state.point===id?'selected':''}"><td><button type="button" data-point="${id}" aria-pressed="${state.point===id}">${id}</button></td><td class="${p.alert?'mc-red':''}">${p.value.toFixed(2)}</td><td class="${p.trend==='↑'?'mc-cell-up':'mc-cell-down'}">${p.trend}</td><td class="${p.alert?'mc-cell-alert':'mc-cell-normal'}">${p.alert?'报警':'正常'}</td></tr>`).join('')}</tbody></table>`;
+    root.querySelectorAll('.mc-map-point').forEach(b=>{b.classList.toggle('selected',b.dataset.point===state.point);b.setAttribute('aria-pressed',String(b.dataset.point===state.point));});
+    root.querySelector('.mc-selected-point').textContent=state.point;root.querySelector('.mc-scene-selected').textContent=state.point;
+    const number=root.querySelector('.mc-selected-number');number.textContent=points[state.point].value.toFixed(2)+'%';number.classList.toggle('mc-red',points[state.point].alert);
+    root.querySelector('.mc-point-label').textContent=state.point;
+    const current=root.querySelector('.mc-current-value');current.innerHTML=points[state.point].value.toFixed(2)+'<small>%CH₄</small>';current.classList.toggle('mc-red',points[state.point].alert);
+    root.querySelector('.mc-trend-point').textContent=state.point;
+  }
+  function renderAI(){
+    root.querySelectorAll('[data-ai]').forEach(b=>b.classList.toggle('active',b.dataset.ai===state.ai));
+    root.querySelector('.mc-ai-content').innerHTML=state.ai==='steps'?`<div class="mc-task-step"><i>✓</i>读取监测窗口</div><div class="mc-task-step"><i>✓</i>比对报警值与持续时间</div><div class="mc-task-step"><i>✓</i>关联原始监测记录</div><div class="mc-task-step wait"><i>4</i>核对处置条款</div><div class="mc-ai-ref"><span>资料状态</span><span>待审核</span></div>`:`<p>T0 浓度 <strong>0.86%</strong>，已达到 <strong>0.80%</strong> 报警值。</p><p>建议核验传感器状态与标校记录，异常成因待核实。</p><div class="mc-ai-ref"><span>监测记录 · 31 条</span><button type="button" data-open="evidence">查看依据 ›</button></div>`;
+  }
+  function renderLog(){
+    root.querySelector('.mc-log-table tbody').innerHTML=records.filter(r=>state.filter==='all'||r.active).map((r,i)=>`<tr><td>${r.time}</td><td>${r.point}</td><td>${r.type}</td><td><span class="mc-tag ${r.level==='红色'?'red':'orange'}">${r.level}</span></td><td${r.active?' class="mc-red"':''}>${r.peak}</td><td>${r.quality}</td><td>${i===0&&state.confirmed?'已确认':r.state}</td><td><button type="button" data-open="${r.active?'event':'review'}">查看</button></td></tr>`).join('');
+    root.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter===state.filter));
+  }
+  function drawChart(){
+    const host=root.querySelector('.mc-trend-chart'),w=Math.max(250,host.clientWidth-14),h=host.clientHeight-5;
+    const p={l:39,r:14,t:23,b:30},cw=w-p.l-p.r,ch=h-p.t-p.b,x=t=>p.l+cw*t,y=v=>p.t+ch*(1-v/1.05);
+    const title='<text x="8" y="13" fill="'+colors.muted+'" font-size="10">%CH₄</text>';
+    const wallTime=8*60+40+state.timeOffset,startTime=wallTime-state.range;
+    let content='';
+    if(state.chart==='compare'){
+      const steps=24,cellW=cw/steps,cellH=Math.min(29,(ch-12)/4),scale=['#123954','#17627b','#288d9f','#63bcb3','#d3b068','#eb777f'];
+      content=title+Object.keys(points).map((id,row)=>`<text x="${p.l-8}" y="${p.t+row*cellH+cellH*.67}" fill="${colors.muted}" font-size="11" text-anchor="end">${id}</text>`+Array.from({length:steps},(_,j)=>{const v=series[id][Math.round(j/23*30)],c=scale[v<.35?0:v<.45?1:v<.55?2:v<.65?3:v<.8?4:5];return`<rect x="${p.l+j*cellW+.6}" y="${p.t+row*cellH+.6}" width="${Math.max(1,cellW-1.2)}" height="${cellH-1.2}" fill="${c}"><title>${id} ${v.toFixed(2)}%</title></rect>`;}).join('')).join('');
+      content+=`<text x="${p.l}" y="${h-8}" fill="${colors.muted}" font-size="10">${clock(startTime)}</text><text x="${w-p.r}" y="${h-8}" fill="${colors.muted}" font-size="10" text-anchor="end">${clock(wallTime)}</text><text x="${w-p.r}" y="${p.t+cellH*4+22}" fill="${colors.muted}" font-size="10" text-anchor="end">低浓度　高浓度</text>`;
+      content+=scale.map((c,i)=>`<rect x="${p.l+i*15}" y="${p.t+cellH*4+13}" width="14" height="6" fill="${c}"/>`).join('');
+    }else{
+      const end=state.chart==='forecast'?state.range/(state.range+60):1;
+      content=title+[0,.4,.8,1].map(v=>`<line x1="${p.l}" x2="${w-p.r}" y1="${y(v)}" y2="${y(v)}" stroke="${colors.grid}" stroke-width=".7"/><text x="${p.l-7}" y="${y(v)+4}" text-anchor="end" fill="${colors.muted}" font-size="10">${v.toFixed(1)}</text>`).join('');
+      if(state.chart==='forecast')content+=`<rect x="${x(end)}" y="${p.t}" width="${cw*(1-end)}" height="${ch}" fill="#0a203899"/><line x1="${x(end)}" x2="${x(end)}" y1="${p.t}" y2="${h-p.b}" stroke="#648da7" stroke-dasharray="3 4"/><text x="${x((end+1)/2)}" y="${y(.44)}" text-anchor="middle" fill="${colors.muted}" font-size="12">暂无预测结果</text><text x="${x(end)-4}" y="${p.t+11}" text-anchor="end" fill="${colors.muted}" font-size="10">数据时刻</text>`;
+      const arr=series[state.point],path=arr.map((v,i)=>(i?'L':'M')+x(i/30*end).toFixed(1)+','+y(v).toFixed(1)).join(' '),area=path+` L${x(end)},${y(0)} L${x(0)},${y(0)}Z`;
+      content+=`<defs><linearGradient id="mc-trend-fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#38a9cb" stop-opacity=".24"/><stop offset="1" stop-color="#38a9cb" stop-opacity="0"/></linearGradient></defs><path d="${area}" fill="url(#mc-trend-fill)"/><line x1="${p.l}" x2="${w-p.r}" y1="${y(.8)}" y2="${y(.8)}" stroke="${colors.red}" stroke-width=".8" stroke-dasharray="4 4"/><path d="${path}" fill="none" stroke="${colors.cyan}" stroke-width="2"/><circle cx="${x(end)}" cy="${y(points[state.point].value)}" r="3" fill="${points[state.point].alert?colors.red:colors.cyan}"/>`;
+      const labels=state.chart==='forecast'?[[0,clock(startTime)],[end,clock(wallTime)],[1,clock(wallTime+60)]]:(w<360?[0,.5,1]:[0,.25,.5,.75,1]).map(t=>[t,clock(startTime+state.range*t)]);
+      content+=labels.map(([t,label])=>`<text x="${x(t)}" y="${h-8}" text-anchor="${t===0?'start':t===1?'end':'middle'}" fill="${colors.muted}" font-size="10">${label}</text>`).join('');
+    }
+    host.innerHTML=`<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${state.chart==='compare'?'多测点浓度对比':state.point+'甲烷浓度趋势'}">${content}</svg>`;
+    root.querySelectorAll('[data-chart]').forEach(b=>b.classList.toggle('active',b.dataset.chart===state.chart));
+    root.querySelector('.mc-chart-period').textContent=clock(startTime)+'—'+clock(wallTime+(state.chart==='forecast'?60:0));
+  }
+  function openDialog(kind){
+    const title=root.querySelector('#mc-dialog-title'),body=root.querySelector('.mc-dialog-body');
+    const events=`<div class="mc-detail-grid"><div><small>事件编号</small>EV-0407-01</div><div><small>预警等级</small><span class="mc-red">红色 · 进行中</span></div><div><small>原始测值 / 报警值</small>0.86% / 0.80%</div><div><small>事件发生时间</small>2022-04-07 08:32:48</div></div>`;
+    const text={
+      event:['事件详情',events+'<h3>质量标记</h3><span class="mc-tag amber">疑似标校</span><h3>处置状态</h3><p>'+ (state.confirmed?'已确认，等待建议审核。':'等待人工确认。') +'</p><div class="mc-ai-actions" style="padding:16px 0 0"><button type="button" class="mc-button primary" data-open="disposition">进入处置</button><button type="button" class="mc-button" data-open="evidence">查看依据</button></div>'],
+      evidence:['事件依据',events+'<h3>监测记录</h3><table><thead><tr><th>时间</th><th>测点</th><th>浓度 / %</th><th>原始行号</th></tr></thead><tbody><tr><td>08:32:48</td><td>T0</td><td>0.81</td><td>18236</td></tr><tr><td>08:36:10</td><td>T0</td><td>0.84</td><td>18241</td></tr><tr><td>08:39:55</td><td>T0</td><td>0.86</td><td>18248</td></tr></tbody></table><h3>触发规则</h3><p>实测甲烷浓度达到0.80%，生成红色预警。</p><h3>事件修订</h3><p>v2 · 新增质量标记，原有预警保留。</p>'],
+      disposition:['事件处置',events+'<div class="mc-case-stages"><span class="current">确认事件</span><span>审核建议</span><span>记录执行</span><span>提交反馈</span><span>复核</span></div><label>核查记录<textarea class="mc-case-note" placeholder="填写传感器核查、标校记录和现场反馈"></textarea></label><button type="button" class="mc-button primary" data-action="confirm">'+(state.confirmed?'事件已确认':'确认事件')+'</button>'],
+      review:['处置复核','<h3>T0 历史高位记录</h3><p>发生时间：04-07 07:12—07:18</p><div class="mc-detail-grid"><div><small>事件状态</small>已结束</div><div><small>当前环节</small>等待复核</div></div><label>复核意见<textarea class="mc-case-note" placeholder="填写依据核对结果和复核意见"></textarea></label><button type="button" class="mc-button primary" data-action="review">提交复核</button>'],
+      points:['监测点位',`<div class="mc-detail-grid"><div><small>测点</small>${state.point}</div><div><small>数据源</small>历史甲烷监测</div><div><small>最近原始测值</small>${points[state.point].value.toFixed(2)}%CH₄</div><div><small>数据时间</small>2022-04-07 08:39:55</div></div><h3>点位配置</h3><p>工作面：31002<br>监测量：甲烷浓度<br>时间基准：UTC+8<br>状态：${points[state.point].alert?'报警':'正常'}</p>`],
+      quality:['数据质量','<div class="mc-detail-grid"><div><small>记录总数</small>770,930</div><div><small>有效记录</small>770,598</div><div><small>异常记录</small>332</div><div><small>有效记录占比</small>99.96%</div></div><h3>质量检查</h3><p>无效时间、非数值、无穷值、重复时间和来源映射分别记录；原始值与源文件行号可查询。</p>'],
+      knowledge:['知识资料','<h3>工作面作业规程</h3><div class="mc-detail-grid"><div><small>适用工作面</small>31002</div><div><small>资料状态</small>待审核</div><div><small>条款类型</small>报警值与标校要求</div><div><small>来源类型</small>矿井资料</div></div><h3>处置经验</h3><p>已复核记录按工作面、事件类型和适用条件归档。</p>'],
+      model:['模型与评估','<div class="mc-detail-grid"><div><small>专业模型</small>未就绪</div><div><small>适用测点</small>T0</div><div><small>输入窗口</small>等待校验</div><div><small>评估报告</small>暂无报告</div></div><h3>评估指标</h3><p>事件查准率、召回率、每有效监测小时误报数、建议出处覆盖率。</p>'],
+      system:['系统管理','<div class="mc-detail-grid"><div><small>运行方式</small>历史回放</div><div><small>当前工作面</small>31002</div><div><small>数据时钟</small>2022-04-07 08:40:00</div><div><small>当前角色</small>安全管理</div></div><h3>数据接入</h3><p>历史文件、监测点位、实时接口和权限配置。</p>'],
+      advice:['处置建议','<h3>关联事件</h3><p>EV-0407-01 · T0 甲烷浓度超限</p><div class="mc-detail-grid"><div><small>当前状态</small>等待资料审核</div><div><small>建议版本</small>尚未生成</div></div><h3>关联资料</h3><p>工作面作业规程 · 待审核</p><button type="button" class="mc-button" data-open="knowledge" style="margin-top:16px">查看资料</button>']
+    };
+    const selected=text[kind]||text.event;title.textContent=selected[0];body.innerHTML=selected[1];root.querySelector('.mc-dialog-message').textContent='';root.querySelector('.mc-dialog-backdrop').hidden=false;root.querySelector('.mc-dialog-close').focus();
+  }
+  root.querySelector('.mc-supports').innerHTML=Array.from({length:23},(_,i)=>{const x=389+i*7.1,y=61+i*8.65;return`<g transform="translate(${x} ${y})"><path d="M-26-3L0-8 10 4-16 9Z" fill="url(#mc-support-metal)" stroke="#72a8ba" stroke-width=".6"/><path d="M-16 9L10 4 10 10-16 15Z" fill="#285675"/><path d="M-26-3L-16 9-16 15-26 3Z" fill="#315d78"/><path d="M-12 5V12M-5 2V10" stroke="#8aadb9" stroke-width="1.3"/></g>`;}).join('');
+  root.addEventListener('click',event=>{
+    const b=event.target.closest('button');if(!b)return;
+    if(b.dataset.point){state.point=b.dataset.point;renderPoints();drawChart();persist();}
+    else if(b.dataset.chart){state.chart=b.dataset.chart;drawChart();persist();}
+    else if(b.dataset.ai){state.ai=b.dataset.ai;renderAI();}
+    else if(b.dataset.filter){state.filter=b.dataset.filter;renderLog();}
+    else if(b.dataset.open)openDialog(b.dataset.open);
+    else if(b.dataset.nav){root.querySelectorAll('[data-nav]').forEach(n=>n.setAttribute('aria-pressed',String(n===b)));const map={'事件研判':'event','处置管理':'disposition','知识资料':'knowledge','模型评估':'model','系统管理':'system'};if(map[b.dataset.nav])openDialog(map[b.dataset.nav]);else if(b.dataset.nav==='监测预警'){state.chart='forecast';drawChart();}else {state.chart='trend';drawChart();}}
+    else if(b.dataset.action==='advice')openDialog('advice');
+    else if(b.dataset.action==='confirm'){state.confirmed=true;b.textContent='事件已确认';root.querySelector('.mc-dialog-message').textContent='已进入建议审核环节';renderLog();root.querySelector('.mc-todo-item div>span').textContent='等待建议审核';root.querySelector('.mc-status-band>div:nth-child(4) em').textContent='待审核 1 · 待复核 1';}
+    else if(b.dataset.action==='review'){state.reviewed=true;b.textContent='复核已提交';root.querySelector('.mc-dialog-message').textContent='复核记录已保存';}
+    else if(b.hasAttribute('data-close')||b.classList.contains('mc-dialog-close'))root.querySelector('.mc-dialog-backdrop').hidden=true;
+    else if(b.classList.contains('mc-play-button')){state.playing=!state.playing;b.textContent=state.playing?'Ⅱ 暂停':'▷ 继续';}
+    else if(b.dataset.range){state.range=Number(b.dataset.range);root.querySelectorAll('[data-range]').forEach(n=>n.classList.toggle('active',n===b));root.querySelector('.mc-location strong:last-child').textContent=state.range===60?'最近 60 分钟':'最近 3 小时';drawChart();}
+    else if(b.classList.contains('mc-next-button')){state.timeOffset++;root.querySelector('.mc-time strong').textContent='2022-04-07 '+clock(8*60+40+state.timeOffset)+':00';drawChart();}
+  });
+  root.addEventListener('keydown',event=>{if(event.key==='Escape')root.querySelector('.mc-dialog-backdrop').hidden=true;});
+  root.querySelector('.mc-dialog-backdrop').addEventListener('click',event=>{if(event.target.classList.contains('mc-dialog-backdrop'))event.target.hidden=true;});
+  renderPoints();renderAI();renderLog();drawChart();new ResizeObserver(drawChart).observe(root.querySelector('.mc-trend-chart'));
+  if(globalThis.Tweak){const theme={panelStyle:'gradient'};const t=new Tweak({container:root,onChange:()=>{root.querySelectorAll('.mc-panel').forEach(p=>p.style.background=theme.panelStyle==='gradient'?'':'#0d2945');}});t.addSelect(theme,'panelStyle',{label:'面板层次',options:[{label:'渐变层次',value:'gradient'},{label:'纯色面板',value:'solid'}]});}
+})();
+</script>

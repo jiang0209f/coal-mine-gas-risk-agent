@@ -1,0 +1,30 @@
+{
+  "runtimeErrors": [],
+  "bannedTextMatches": [],
+  "widths": [
+    {
+      "viewport": 992,
+      "scroll": 992
+    },
+    {
+      "viewport": 704,
+      "scroll": 704
+    },
+    {
+      "viewport": 358,
+      "scroll": 358
+    }
+  ],
+  "checks": [
+    "point-selection",
+    "point-value",
+    "point-heatmap",
+    "model-not-ready",
+    "event-filter",
+    "tool-records",
+    "evidence",
+    "human-confirmation",
+    "advice-review-state",
+    "escape-close"
+  ]
+}
