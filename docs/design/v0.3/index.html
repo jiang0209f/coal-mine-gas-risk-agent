@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>采煤工作面瓦斯风险智能管控平台</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app-shell">
+  <header class="masthead">
+    <a class="mine-brand" href="#" aria-label="新元煤矿"><span class="brand-symbol">矿</span><span><strong>新元煤矿</strong><small>安全生产管控中心</small></span></a>
+    <h1>采煤工作面瓦斯风险智能管控平台</h1>
+    <div class="masthead-right"><span class="connection"><i></i>历史回放</span><span class="user-avatar">安</span><span>安全管理</span></div>
+  </header>
+  <nav class="navigation" aria-label="业务导航">
+    <div class="nav-links"><button class="active" data-nav="overview" type="button">综合态势</button><button data-nav="monitor" type="button">监测预警</button><button data-nav="events" type="button">事件研判</button><button data-nav="cases" type="button">处置管理</button><button data-nav="knowledge" type="button">知识资料</button><button data-nav="models" type="button">模型评估</button></div>
+    <button class="nav-utility" type="button" data-open="system">系统管理 <span aria-hidden="true">↗</span></button>
+  </nav>
+  <main class="page">
+    <div class="page-context"><div class="page-location"><span class="location-path">安全监测</span><span class="path-separator">/</span><h2>31002 工作面</h2><button class="point-picker" type="button" data-open="points">测点 4 <span>⌄</span></button></div><div class="replay-controls"><span class="data-time">2022-04-07 <strong data-clock>08:40:00</strong></span><span class="control-divider"></span><button class="icon-text" type="button" data-action="play">Ⅱ 暂停</button><button class="button small" type="button" data-action="advance">前进 1 分钟</button></div></div>
+    <section class="summary" aria-label="风险摘要">
+      <div class="summary-item concentration"><div class="summary-label"><span data-selected-point>T0</span> 当前浓度 <span class="badge danger concentration-status">超限</span></div><div class="summary-value danger-text"><strong data-current>0.86</strong><span>%CH₄</span><small>08:39:55 更新</small></div></div>
+      <div class="summary-item"><div class="summary-label">进行中预警</div><div class="summary-value"><strong>1</strong><span>条</span><small><i class="status-dot danger-dot"></i>红色 1 条</small></div></div>
+      <div class="summary-item"><div class="summary-label">待处理事件</div><div class="summary-value"><strong class="warning-text">2</strong><span>项</span><small data-todo-summary>待确认 1 · 待复核 1</small></div></div>
+      <div class="summary-item model-summary"><div class="summary-label">专业预测</div><div class="summary-value"><strong class="status-value">未就绪</strong><small>等待模型产物</small></div></div>
+    </section>
+    <div class="stage">
+      <section class="panel point-panel"><header class="panel-header"><h2>监测点位</h2><span class="caption">%CH₄</span></header><div class="point-list"></div><footer class="panel-footer"><span><i class="status-dot accent-dot"></i>正常 3 <i class="status-dot danger-dot"></i>报警 1</span><button class="text-button" type="button" data-open="points">点位详情</button></footer></section>
+      <section class="panel face-panel"><header class="panel-header"><div class="panel-heading"><h2>工作面监测</h2><span class="caption">31002</span></div><button type="button" class="text-button" data-action="reset">复位视图</button></header><div class="face-scene"><img class="face-geometry" src="mine.svg" alt="工作面、巷道、支架与采煤机布置"><svg class="face-leaders" aria-hidden="true"></svg><div class="scene-name face-name">31002 工作面</div><div class="scene-name inlet-name">进风巷</div><div class="scene-name outlet-name">回风巷</div><div class="scene-name machine-name">采煤机</div><div class="map-labels"></div></div><footer class="panel-footer face-footer"><div class="scene-legend"><span><i class="status-dot accent-dot"></i>正常</span><span><i class="status-dot danger-dot"></i>报警</span></div><button type="button" class="text-button" data-open="point">查看选中测点 <span data-face-point>T0</span> ›</button></footer></section>
+      <section class="panel quality-panel"><header class="panel-header"><h2>数据质量</h2><button type="button" class="text-button" data-open="quality">详情</button></header><div class="quality-body"><div class="quality-score"><span class="caption">有效记录占比</span><strong>99.96<span>%</span></strong></div><div class="quality-track"><span></span></div><div class="quality-counts"><div><span class="caption">有效记录</span><strong>770,598</strong></div><div><span class="caption">异常记录</span><strong class="warning-text">332</strong></div></div><div class="quality-check"><span>源文件校验</span><span class="pass-text">已通过</span></div><div class="quality-check"><span>单位核对</span><span class="warning-text">待确认</span></div></div></section>
+      <section class="panel trend-panel"><header class="panel-header"><h2>浓度分析</h2><div class="segmented chart-switch" aria-label="图表类型"><button class="active" type="button" data-chart="trend">趋势</button><button type="button" data-chart="compare">对比</button><button type="button" data-chart="forecast">预测</button></div></header><div class="chart-context"><span><i class="line-key"></i><span data-series-label>T0 实测</span></span><span class="threshold-key"><i class="line-key danger-key"></i>报警值 0.80%</span><span data-chart-range>近 60 分钟</span></div><div class="trend-plot" role="img" aria-label="甲烷浓度趋势"></div></section>
+      <section class="panel investigation-panel"><header class="panel-header"><div class="panel-heading"><span class="assistant-glyph" aria-hidden="true">✧</span><h2>智能研判</h2></div><span class="badge neutral">待核实</span></header><div class="event-context"><div class="event-name"><span class="event-severity"></span><div><strong>T0 甲烷浓度超限</strong><small>08:32:48 起 · EV-0407-01</small></div><span class="badge danger">红色</span></div><div class="event-context-meta"><span>报警值 <b>0.80%</b></span><span class="badge warning">疑似标校</span></div></div><div class="investigation-tabs" role="tablist" aria-label="事件工作区"><button class="active" data-tab="analysis" role="tab" aria-selected="true" type="button">研判结论</button><button data-tab="evidence" role="tab" aria-selected="false" type="button">原始依据</button><button data-tab="disposition" role="tab" aria-selected="false" type="button">人工处置</button></div><div class="investigation-body" aria-live="polite"></div><footer class="investigation-footer"><div class="assistant-buttons"><button class="button primary" type="button" data-action="advice">生成建议</button><button class="button" type="button" data-tab="evidence">查看依据</button></div><form class="question-form"><input aria-label="向智能体提问" placeholder="围绕当前事件提问"><button type="submit" aria-label="发送问题">↑</button></form></footer></section>
+      <section class="panel events-panel"><header class="panel-header"><div class="panel-heading"><h2>预警记录</h2><span class="caption">近 24 小时</span></div><div class="events-controls"><div class="segmented"><button class="active" type="button" data-filter="all">全部 4</button><button type="button" data-filter="active">进行中 1</button></div><button class="text-button" data-open="events" type="button">查看全部 ›</button></div></header><div class="events-table-wrap"><table class="events-table"><thead><tr><th>发生时间</th><th>测点</th><th>预警类型</th><th>等级</th><th>峰值 / %</th><th>质量标记</th><th>处置状态</th><th>操作</th></tr></thead><tbody></tbody></table></div></section>
+    </div>
+  </main>
+</div>
+<dialog class="detail-modal"><header><div><small>31002 工作面</small><h2 data-modal-title>事件详情</h2></div><button class="dialog-close" aria-label="关闭详情" type="button">×</button></header><div class="modal-body"></div><footer><span class="modal-status" aria-live="polite"></span><button class="button" type="button" data-close>关闭</button></footer></dialog>
+<script src="app.js"></script>
+</body>
+</html>
