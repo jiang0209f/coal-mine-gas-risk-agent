@@ -151,6 +151,30 @@ def test_tool_roundtrip_injects_frozen_context_and_preserves_call_id(agent_parts
     assert all(tool["function"]["parameters"]["additionalProperties"] is False for tool in tool_schemas)
 
 
+def test_direct_raw_series_query_keeps_observation_id_file_and_original_row_reference(agent_parts):
+    _, _, context, services, _ = agent_parts
+    raw = {
+        "id": "synthetic-observation-7", "point_id": "31002:T0", "source_id": "source",
+        "source_file_id": "synthetic-file", "row_number": 7,
+        "event_time": "2026-10-01T00:01:00+00:00", "available_at": "2026-10-01T00:01:05+00:00",
+        "raw_value": "0.4", "value": 0.4, "quality_flags": [],
+    }
+    services["data"].query_series = lambda **kwargs: {"rows": [raw], "total": 1, "quality": {}}
+    service, _ = configured_service(agent_parts, [
+        reply(None, [call("query_series", {
+            "point_id": "31002:T0", "start_at": "2026-10-01T08:00:00+08:00",
+            "end_at": "2026-10-01T08:05:00+08:00",
+        })]), reply("已读取原始监测行。"),
+    ])
+
+    task = service.chat(context, "查询原始数据")
+
+    assert task["evidence_refs"] == [{
+        "kind": "observation", "observation_id": raw["id"], "source_file_id": raw["source_file_id"],
+        "row_number": 7, "event_time": raw["event_time"], "available_at": raw["available_at"],
+    }]
+
+
 @pytest.mark.parametrize("bad_call", [
     call("query_events", {"source_id": "another-source"}),
     call("query_events", {"actor": {"user_id": "admin"}}),
@@ -212,6 +236,29 @@ def test_provider_failure_is_saved_without_raw_exception_or_key(agent_parts):
     assert task["error_code"] == "model_service_failed"
     assert "private" not in json.dumps(task)
     assert "offline-test-key" not in json.dumps(task)
+
+
+@pytest.mark.parametrize("status_code,error_code", [
+    (503, "model_service_unavailable"), (429, "model_service_unavailable"),
+    (500, "model_service_failed"),
+])
+def test_provider_http_failure_keeps_safe_status_and_completed_tool_results(agent_parts, status_code, error_code):
+    service, _ = configured_service(agent_parts, [
+        reply(None, [call("query_events", {})]),
+        DeepSeekRequestError("private upstream body offline-test-key", status_code=status_code),
+    ])
+
+    task = service.chat(agent_parts[2], "查询当前事件")
+
+    assert task["state"] == "failed"
+    assert task["error_code"] == error_code
+    assert task["upstream_status_code"] == status_code
+    assert f"HTTP {status_code}" in task["final_text"]
+    assert "已保存" in task["final_text"]
+    assert len(task["result_cards"]) == 1
+    assert task["tool_calls"][0]["status"] == "success"
+    assert "private upstream body" not in json.dumps(service.store.get("task", task["task_id"]))
+    assert "offline-test-key" not in json.dumps(service.store.get("task", task["task_id"]))
 
 
 def test_call_budget_prevents_more_than_twelve_service_calls(agent_parts):

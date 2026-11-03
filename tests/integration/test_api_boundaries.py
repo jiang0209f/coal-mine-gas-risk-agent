@@ -45,6 +45,15 @@ def test_realtime_context_cannot_be_advanced_to_client_future(api, entry):
     assert 400 <= response.status_code < 500
 
 
+def test_realtime_creation_uses_server_now_for_old_client_start(api):
+    client, _ = api
+    before = datetime.now(timezone.utc)
+    sid = new_session(client, mode="realtime", start=datetime(2022, 1, 1, tzinfo=timezone.utc))
+    after = datetime.now(timezone.utc)
+    session = client.get(f"/api/sessions/{sid}").json()
+    assert before <= datetime.fromisoformat(session["as_of"]) <= after
+
+
 def test_long_replay_tick_does_not_skip_earlier_red_pulse(api):
     client, _ = api
     uploaded = client.post("/api/files", files={"file": ("pulse.csv", b"STime,SValue\n2022-01-01T00:00:00+00:00,0.1\n2022-01-01T00:01:00+00:00,0.9\n2022-01-01T00:02:00+00:00,0.1\n2022-01-01T00:30:00+00:00,0.1\n", "text/csv")}).json()

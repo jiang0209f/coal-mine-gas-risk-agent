@@ -10,7 +10,7 @@ from uuid import uuid4
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError
 
-from app.adapters.deepseek import DeepSeekAdapter
+from app.adapters.deepseek import DeepSeekAdapter, DeepSeekRequestError
 from app.config import Settings
 from app.db import Store
 from app.schemas.common import Actor, DomainError, ExecutionContext, now_utc, utcstr
@@ -160,6 +160,7 @@ class AgentService:
             task["final_text"] = ""
             task["conversation_as_of"] = conversation_as_of
             task.pop("error_code", None)
+            task.pop("upstream_status_code", None)
         else:
             messages = [{"role": "system", "content": _SYSTEM + "\n执行上下文：" + json.dumps({
                 "session_id": context.session_id, "source_id": context.source_id,
@@ -238,6 +239,13 @@ class AgentService:
             elif isinstance(value, dict):
                 for key in ("evidence_refs", "source_refs"):
                     found.extend(item for item in value.get(key, []) if isinstance(item, dict))
+                observation_id = value.get("observation_id", value.get("id"))
+                if observation_id and value.get("source_file_id") and "row_number" in value and value.get("event_time"):
+                    found.append({
+                        "kind": "observation", "observation_id": observation_id,
+                        "source_file_id": value["source_file_id"], "row_number": value["row_number"],
+                        "event_time": value["event_time"], "available_at": value.get("available_at"),
+                    })
                 if value.get("reference_id"):
                     found.append({"kind": "reference", "reference_id": value["reference_id"], "locator": value.get("locator")})
                 if value.get("run_id"):
@@ -372,6 +380,17 @@ class AgentService:
                 task["error_code"] = "tool_round_budget_exceeded"
             task["state"] = "partial"
             task["final_text"] = "已保存已完成的工具结果；本次调用达到执行上限。"
+            return self._save(task)
+        except DeepSeekRequestError as error:
+            task["state"] = "failed"
+            status = error.status_code
+            status = status if type(status) is int and 100 <= status <= 599 else None
+            task["error_code"] = "model_service_unavailable" if status in (429, 503) else "model_service_failed"
+            if status is not None:
+                task["upstream_status_code"] = status
+            reason = "模型服务暂不可用" if status in (429, 503) else "模型服务请求失败"
+            http_status = f"（HTTP {status}）" if status is not None else ""
+            task["final_text"] = f"{reason}{http_status}，已完成的业务结果已保存。"
             return self._save(task)
         except Exception:
             task["state"] = "failed"

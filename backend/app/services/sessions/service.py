@@ -54,8 +54,11 @@ class SessionsService:
         if mode not in _MODES:
             raise DomainError("运行模式无效")
         initial_time = utcstr(start_as_of)
-        if mode == "realtime" and start_as_of > now_utc():
-            raise DomainError("实时会话时间不能晚于服务器当前时间")
+        if mode == "realtime":
+            server_time = now_utc()
+            if start_as_of > server_time:
+                raise DomainError("实时会话时间不能晚于服务器当前时间")
+            initial_time = utcstr(server_time)
         session_speed = self._speed(speed)
         with self.store.transaction() as connection:
             source = self._source(actor, source_id, connection)
