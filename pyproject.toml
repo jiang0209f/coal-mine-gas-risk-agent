@@ -23,6 +23,19 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10"]
+models = [
+    "numpy>=1.26,<3",
+    "pandas>=2.2,<4",
+    "scipy>=1.12,<2",
+    "scikit-learn>=1.5,<1.11",
+    "lightgbm>=4.5,<5",
+    "torch>=2.6,<3",
+    "einops>=0.8,<1",
+    "sympy>=1.13,<2",
+    "PyWavelets>=1.6,<2",
+    "matplotlib>=3.8,<4",
+    "skops>=0.16,<1",
+]
 
 [tool.setuptools.packages.find]
 where = ["backend"]

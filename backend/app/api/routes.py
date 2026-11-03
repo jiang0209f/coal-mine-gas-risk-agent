@@ -76,6 +76,13 @@ class Forecast(Payload):
     horizon_seconds: int | None = None
 
 
+class ModelPackageRun(Payload):
+    session_id: str
+    model_id: str
+    version: str | None = None
+    features: dict
+
+
 class Search(Payload):
     session_id: str
     query: str
@@ -248,6 +255,21 @@ def observations(session_id: str, point_id: str, start_at: AwareDatetime, end_at
 @router.get("/models")
 def models(session_id: str, point_id: str | None = None, a=Depends(actor), s=Depends(services)):
     return s["prediction"].list_models(s["sessions"].get_context(a, session_id), point_id)
+
+
+@router.get("/model-packages")
+def model_packages(session_id: str, a=Depends(actor), s=Depends(services)):
+    return s["model_packages"].list_packages(s["sessions"].get_context(a, session_id))
+
+
+@router.post("/model-package-runs")
+def run_model_package(body: ModelPackageRun, a=Depends(actor), s=Depends(services)):
+    return s["model_packages"].run(s["sessions"].get_context(a, body.session_id), body.model_id, body.features, body.version)
+
+
+@router.get("/model-package-runs/{run_id}")
+def get_model_package_run(run_id: str, session_id: str, a=Depends(actor), s=Depends(services)):
+    return s["model_packages"].get_run(s["sessions"].get_context(a, session_id), run_id)
 
 
 @router.post("/models")

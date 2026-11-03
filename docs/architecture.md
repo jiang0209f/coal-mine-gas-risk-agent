@@ -47,3 +47,11 @@ flowchart LR
 运行服务的/openapi.json列出实际HTTP接口，包含上传、目录、标准现场接收及基础方案兼容路径。HTTP监测导入只接受上传编号，文档文件读取须由可信本地调用配置允许目录。
 
 后续集成项为专业模型训练与产物登记、现场系统协议、矿井有效预案和经确认的单位/规则。基础服务、离线基线和工作台用于完成可验证的软件流程。
+
+## 专业模型封装
+
+`gas_forecast` 封装 FEDformer＋12阶段 LightGBM 残差模型；`gas_attribution` 封装六通道 KMeans/SVC 候选溯源。两者通过 `ModelRuntime` 在独立 Python 环境执行，受信任的本地目录清单绑定模型版本、来源及工作面。路径和运行命令由本地配置提供。
+
+`GET /api/model-packages` 查看当前会话适用的模型及缺失条件；`POST /api/model-package-runs` 提交准备好的特征；`GET /api/model-package-runs/{run_id}` 查询本会话运行。服务注入会话时钟并保存特征摘要与 `submitted_features` 来源标记。该入口用于模型封装调用，原始监测的特征工程及常规预测流水线仍按训练清单另行接入。
+
+依据追溯继续使用 `traceability`；候选溯源的类别概率为聚类成员概率。输入合同、产物导出及调用命令见[模型封装说明](model-packaging.md)。

@@ -19,6 +19,8 @@ def build_services(configuration):
     from app.services.sessions.service import SessionsService
     from app.services.sessions.runner import SessionRunner
     from app.services.prediction.service import PredictionService
+    from app.services.prediction.packages import ModelPackagesService
+    from app.adapters.model_runtime import ModelRuntime
     from app.services.alerts.service import AlertsService
     from app.services.traceability.service import TraceabilityService
     from app.services.knowledge.service import KnowledgeService
@@ -32,6 +34,7 @@ def build_services(configuration):
     s = {"store": store, "auth": AuthService(store), "sessions": SessionsService(store)}
     s["data"] = DataService(store, runtime / "imports")
     s["prediction"] = PredictionService(store, s["data"])
+    s["model_packages"] = ModelPackagesService(store, ModelRuntime(configuration.model_catalog_path))
     s["alerts"] = AlertsService(store, s["data"])
     s["traceability"] = TraceabilityService(store, s["alerts"], s["data"], s["prediction"])
     s["knowledge"] = KnowledgeService(store)
