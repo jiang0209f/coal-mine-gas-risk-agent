@@ -13,4 +13,10 @@ dist/
 /local_data/
 /artifacts/
 /runs/
+/tmp/
 *.log
+/frontend/node_modules/
+/frontend/dist/
+/frontend/test-results/
+/frontend/playwright-report/
+/frontend/tests/artifacts/

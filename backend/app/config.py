@@ -1,6 +1,7 @@
 """本地配置与环境变量。"""
 
 from pathlib import Path
+import os
 
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=PROJECT_ROOT / ".env",
+        env_file=Path(os.environ.get("COAL_AGENT_ENV_FILE", PROJECT_ROOT / ".env")),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -23,6 +24,8 @@ class Settings(BaseSettings):
         allow_inf_nan=False,
     )
 
+    runtime_dir: Path = PROJECT_ROOT / "local_data"
+    database_url: str | None = None
     deepseek_api_key: SecretStr | None = None
     deepseek_base_url: AnyHttpUrl = "https://api.deepseek.com"
     deepseek_model: str = Field(default="deepseek-flash", min_length=1)

@@ -11,9 +11,10 @@ import re
 import shutil
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zipfile import BadZipFile
 
 from openpyxl import load_workbook
-from sqlalchemy import insert, select
+from sqlalchemy import func, insert, select
 
 from app.db import Store, observations
 from app.schemas.common import Actor, DomainError, ExecutionContext, now_utc, utcstr
@@ -179,6 +180,8 @@ class DataService:
         actor.require_face(source["face_id"])
         if not isinstance(mapping, dict) or not isinstance(mapping.get("value_columns"), dict) or not mapping["value_columns"] or not mapping.get("time_column"):
             raise DomainError("需要时间列和测值列映射")
+        if len(set(mapping["value_columns"].values())) != len(mapping["value_columns"]):
+            raise DomainError("同一文件的多个测值列不能映射到同一测点")
         zone = _zone(mapping.get("timezone", source["timezone"]))
         lineage = mapping.get("lineage", "unknown")
         if lineage not in ("raw", "processed", "unknown"):
@@ -264,10 +267,61 @@ class DataService:
                         if len(batch) >= 500:
                             flush()
                 flush()
-            except (OSError, ValueError, KeyError, csv.Error) as exc:
+            except (OSError, ValueError, KeyError, csv.Error, BadZipFile, UnicodeError) as exc:
                 raise DomainError("文件读取失败，请检查格式和映射") from exc
             self.store.put("data_import", import_id, report, connection)
             return report
+
+    def ingest_readings(self, actor, source_id, readings, received_at=None):
+        """适配现有监测系统的统一入口，接收时间由服务端确定。"""
+        actor.require_role("safety_management")
+        actor.require_face(self._source(source_id)["face_id"])
+        if not isinstance(readings, list) or not 1 <= len(readings) <= 10000:
+            raise DomainError("单次接收须为1至10000条测值")
+        arrived = utcstr(received_at or now_utc())
+        batch = []
+        for reading in readings:
+            if not isinstance(reading, dict) or not isinstance(reading.get("reading_id"), str) or not reading["reading_id"]:
+                raise DomainError("实时测值需要稳定的reading_id")
+            point = self._point(reading.get("point_id"))
+            if point["source_id"] != source_id:
+                raise DomainError("实时点位与数据源不符", "forbidden", 403)
+            event = reading.get("event_time")
+            if isinstance(event, str):
+                try:
+                    event = datetime.fromisoformat(event.replace("Z", "+00:00"))
+                except ValueError as exc:
+                    raise DomainError("实时测值时间格式无效") from exc
+            event = utcstr(event)
+            raw = reading.get("raw_value")
+            flags = []
+            try:
+                value = float(raw)
+                if not math.isfinite(value) or value == -999999 or (point["quantity"] == "methane" and value < 0):
+                    raise ValueError
+            except (TypeError, ValueError, OverflowError):
+                value = None
+                flags.append("invalid_value")
+            if point["unit_status"] != "confirmed":
+                flags.append("unit_inferred")
+            if point["lineage"] != "raw":
+                flags.append("lineage_" + point["lineage"])
+            key = hashlib.sha256(f"live:{source_id}:{point['point_id']}:{reading['reading_id']}".encode()).hexdigest()
+            batch.append(dict(id=key, point_id=point["point_id"], source_id=source_id, event_time=event,
+                              available_at=arrived, value=value, raw_value=None if raw is None else str(raw),
+                              quality_flags=flags, source_file_id="live:" + source_id, row_number=0,
+                              import_id="live:" + reading["reading_id"]))
+        imported = 0
+        with self.store.transaction() as connection:
+            for row in batch:
+                existing = connection.execute(select(observations).where(observations.c.id == row["id"])).mappings().first()
+                if existing:
+                    if any(existing[k] != row[k] for k in ("event_time", "raw_value", "point_id")):
+                        raise DomainError("同一reading_id的测值内容冲突", "conflict", 409)
+                    continue
+                connection.execute(insert(observations).values(**row))
+                imported += 1
+        return dict(source_id=source_id, imported_rows=imported, duplicate_rows=len(batch) - imported, received_at=arrived)
 
     def query_series(self, context: ExecutionContext, point_id, start_at, end_at,
                      aggregation_seconds=None, fill_max_seconds=0, limit=1000, offset=0):
@@ -282,22 +336,33 @@ class DataService:
             raise DomainError("查询分页或填补参数无效")
         if aggregation_seconds is not None and (isinstance(aggregation_seconds, bool) or not isinstance(aggregation_seconds, int) or aggregation_seconds < 1):
             raise DomainError("聚合间隔须为正整数秒")
+        if aggregation_seconds and max(0, (min(end_at, context.as_of).timestamp() - start_at.timestamp()) // aggregation_seconds) > 100000:
+            raise DomainError("单次聚合最多100000个时间桶，请缩小时间范围")
         with self.store.transaction() as connection:
-            result = connection.execute(select(observations).where(
-                observations.c.point_id == point_id, observations.c.event_time >= lower,
+            result = connection.execute(select(observations, func.count().over(partition_by=observations.c.event_time).label("_duplicate_count")).where(
+                observations.c.point_id == point_id, observations.c.source_id == context.source_id,
+                observations.c.event_time >= lower,
                 observations.c.event_time < upper, observations.c.event_time <= cutoff,
                 observations.c.available_at <= cutoff).order_by(
                     observations.c.event_time, observations.c.row_number, observations.c.id)).mappings()
-            rows = [dict(r) for r in result]
-        counts = Counter(r["event_time"] for r in rows)
-        for row in rows:
-            row["quality_flags"] = sorted(set(row["quality_flags"]) | ({"duplicate_timestamp"} if counts[row["event_time"]] > 1 else set()))
+            rows, flags, valid, total = [], set(), 0, 0
+            for record in result:
+                row = dict(record)
+                duplicates = row.pop("_duplicate_count")
+                row["quality_flags"] = sorted(set(row["quality_flags"]) | ({"duplicate_timestamp"} if duplicates > 1 else set()))
+                flags.update(row["quality_flags"])
+                valid += row["value"] is not None
+                if aggregation_seconds is not None or offset <= total < offset + limit:
+                    rows.append(row)
+                total += 1
         if aggregation_seconds is not None:
             rows = self._aggregate(rows, start_at, min(end_at, context.as_of), aggregation_seconds, fill_max_seconds)
-        flags = sorted({flag for row in rows for flag in row["quality_flags"]})
-        quality = {"flags": flags, "valid_rows": sum(r["value"] is not None for r in rows),
-                   "invalid_rows": sum(r["value"] is None for r in rows)}
-        return dict(point_id=point_id, as_of=cutoff, rows=rows[offset:offset + limit], total=len(rows),
+            total = len(rows)
+            flags = {flag for row in rows for flag in row["quality_flags"]}
+            valid = sum(row["value"] is not None for row in rows)
+            rows = rows[offset:offset + limit]
+        quality = {"flags": sorted(flags), "valid_rows": valid, "invalid_rows": total - valid}
+        return dict(point_id=point_id, as_of=cutoff, rows=rows, total=total,
                     limit=limit, offset=offset, quality=quality, unit=point["unit"], lineage=point["lineage"])
 
     @staticmethod
@@ -328,6 +393,10 @@ class DataService:
             output.append(dict(event_time=utcstr(datetime.fromtimestamp(cursor, timezone.utc)),
                                bucket_end=utcstr(datetime.fromtimestamp(cursor + seconds, timezone.utc)),
                                value=value, min=min(values) if values else None, max=max(values) if values else None,
-                               mean=mean, count=len(values), quality_flags=sorted(flags)))
+                               mean=mean, count=len(values), quality_flags=sorted(flags),
+                               available_at=max((r["available_at"] for r in members), default=None),
+                               source_refs=[dict(observation_id=r["id"], source_file_id=r["source_file_id"],
+                                                 row_number=r["row_number"], event_time=r["event_time"],
+                                                 available_at=r["available_at"]) for r in members]))
             cursor += seconds
         return output

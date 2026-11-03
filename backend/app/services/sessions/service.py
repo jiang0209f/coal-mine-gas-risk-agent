@@ -54,6 +54,8 @@ class SessionsService:
         if mode not in _MODES:
             raise DomainError("运行模式无效")
         initial_time = utcstr(start_as_of)
+        if mode == "realtime" and start_as_of > now_utc():
+            raise DomainError("实时会话时间不能晚于服务器当前时间")
         session_speed = self._speed(speed)
         with self.store.transaction() as connection:
             source = self._source(actor, source_id, connection)
@@ -113,6 +115,8 @@ class SessionsService:
                 if target_as_of is None:
                     raise DomainError("推进会话需要目标时间", missing_fields=["target_as_of"])
                 target_time = utcstr(target_as_of)
+                if session["mode"] == "realtime" and target_as_of > now_utc():
+                    raise DomainError("实时会话时间不能晚于服务器当前时间")
                 if target_time < session["as_of"]:
                     raise DomainError("回退时间需创建新会话", code="conflict", status_code=409)
                 session["as_of"] = target_time
