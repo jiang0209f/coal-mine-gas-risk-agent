@@ -1,0 +1,226 @@
+<div id="mining-ui-review" class="viz-carousel" aria-label="煤矿瓦斯智能体页面设计比较" data-previous-label="上一方案" data-next-label="下一方案">
+  <section data-variant="工业研判工作台" aria-label="工业研判工作台设计">
+    <div class="mine-product workbench" data-design="workbench">
+      <header class="mine-header"><div class="brand"><span class="brand-mark">矿</span><div><strong>瓦斯风险智能体</strong><small>COAL MINE · INTELLIGENT SAFETY</small></div></div><div class="header-location">31002 工作面 <span>／ 历史回放</span></div><div class="preview-label">设计预览 · 合成示例</div></header>
+      <div class="workbench-shell">
+        <aside class="mine-nav" aria-label="业务导航"><div class="nav-caption">安全监测与研判</div><div class="nav-list"></div><div class="nav-footer"><span class="small-dot"></span> 回放数据<br><small>数据时刻与操作时刻分开记录</small></div></aside>
+        <main class="workbench-main">
+          <div class="page-heading"><div><small>工作面 / 31002</small><h2 class="view-heading">综合监测</h2></div><div class="clock"><span>数据时刻 · UTC+8</span><strong>2022-04-07 08:40:00</strong></div></div>
+          <div class="context-bar"><span class="pill blue">历史回放</span><span>监测来源：T0 原始记录</span><span class="source-quality">单位待核验</span><button class="mine-button quiet replay-button" type="button">Ⅱ 暂停回放</button></div>
+          <div class="workspace-grid"><div class="workspace-content"></div><aside class="assistant-pane" aria-label="智能体任务工作区"></aside></div>
+          <footer class="product-footer"><span>团队草案规则 · 处置建议需审核</span><span>全部数值为界面设计示例</span></footer>
+        </main>
+      </div>
+    </div>
+  </section>
+  <section data-variant="安全态势指挥屏" aria-label="安全态势指挥屏设计" hidden>
+    <div class="mine-product command" data-design="command">
+      <header class="command-header"><div><strong>31002</strong><small>综采工作面</small></div><div class="command-title"><small>COAL MINE SAFETY INTELLIGENCE</small><h2>瓦斯风险智能研判中心</h2></div><div class="preview-label">设计预览 · 合成示例</div></header>
+      <nav class="command-nav nav-list" aria-label="业务导航"></nav>
+      <div class="command-clock"><span class="pill blue">历史回放</span><span>数据时刻 2022-04-07 08:40:00 · UTC+8</span><button class="mine-button quiet replay-button" type="button">Ⅱ 暂停回放</button></div>
+      <main class="command-main"><div class="workspace-content"></div><aside class="assistant-pane" aria-label="智能研判任务"></aside></main>
+      <footer class="product-footer"><span>集中监测 → 预警 → 依据 → 建议 → 人工复核</span><span>测点分组示意 · 全部数值为设计示例</span></footer>
+    </div>
+  </section>
+</div>
+<style>
+#mining-ui-review{--mine-font:14px;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif;font-size:var(--mine-font);line-height:1.55;color-scheme:light dark}
+#mining-ui-review *{box-sizing:border-box}
+#mining-ui-review [data-variant]{min-height:1120px}
+#mining-ui-review .mine-product{--mine-bg:light-dark(#eef3f8,#111d2b);--mine-surface:light-dark(#fff,#19293b);--mine-soft:light-dark(#f5f8fc,#142234);--mine-border:light-dark(#dfe7f0,#2b4059);--mine-text:light-dark(#23374f,#e6eef8);--mine-muted:light-dark(#63778e,#a0b4cc);--mine-accent:light-dark(#177baa,#43c0e2);--mine-tint:light-dark(#eaf5fb,#183a51);--mine-danger:light-dark(#c94343,#ff9292);--mine-danger-soft:light-dark(#fff0f0,#422b39);--mine-orange:light-dark(#ae6c14,#edb655);--mine-green:light-dark(#23775b,#65cfb2);background:var(--mine-bg);color:var(--mine-text);overflow:hidden;min-width:0}
+#mining-ui-review h2,#mining-ui-review h3,#mining-ui-review p{margin:0}
+#mining-ui-review small{font-size:12px}
+#mining-ui-review strong{font-weight:600}
+#mining-ui-review button{font:inherit;cursor:pointer}
+#mining-ui-review button:focus-visible{outline:3px solid var(--mine-accent);outline-offset:3px}
+#mining-ui-review .mine-header{min-height:78px;padding:18px 22px;background:#102c49;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:20px}
+#mining-ui-review .brand{display:flex;align-items:center;gap:12px}
+#mining-ui-review .brand-mark{height:38px;width:38px;display:grid;place-items:center;border-radius:8px;background:#2088b0;font-size:22px;font-weight:600}
+#mining-ui-review .brand strong{font-size:19px;letter-spacing:1px}
+#mining-ui-review .brand small{display:block;font-size:10px;letter-spacing:1px;margin-top:3px;color:#afc9e2}
+#mining-ui-review .header-location{font-size:14px}.header-location span{color:#bdd2e7}
+#mining-ui-review .preview-label{color:#d7e9f8;border:1px solid #71889d;border-radius:4px;padding:5px 9px;font-size:12px;white-space:nowrap}
+#mining-ui-review .workbench-shell{display:grid;grid-template-columns:145px minmax(0,1fr)}
+#mining-ui-review .mine-nav{background:#142f4c;color:#d6e3f0;padding:22px 10px;display:flex;flex-direction:column;min-width:0}
+#mining-ui-review .nav-caption{padding:0 10px 20px;color:#92acc6;font-size:12px}
+#mining-ui-review .nav-list{display:flex;flex-direction:column;gap:7px}
+#mining-ui-review .nav-item{background:transparent;border:0;color:inherit;text-align:left;padding:12px 11px;border-radius:5px;display:flex;align-items:center;gap:9px;white-space:nowrap;font-size:14px}
+#mining-ui-review .nav-item[aria-pressed="true"]{background:#225178;color:#fff;box-shadow:inset 3px 0 #43bfe2}
+#mining-ui-review .nav-item:hover{background:#214666}
+#mining-ui-review .nav-glyph{font-size:14px;color:#86c4df}
+#mining-ui-review .nav-footer{margin-top:auto;padding:35px 10px 5px;font-size:12px;color:#b8cce0}
+#mining-ui-review .nav-footer small{display:block;color:#8da9c4;margin-top:7px}
+#mining-ui-review .small-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#52b8d3;margin-right:5px}
+#mining-ui-review .workbench-main{padding:20px;min-width:0}
+#mining-ui-review .page-heading{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:17px}
+#mining-ui-review .page-heading small{color:var(--mine-muted)}
+#mining-ui-review .page-heading h2{font-size:23px;letter-spacing:.5px;margin-top:4px}
+#mining-ui-review .clock{text-align:right}
+#mining-ui-review .clock span{display:block;font-size:11px;color:var(--mine-muted)}
+#mining-ui-review .clock strong{font-size:14px;font-variant-numeric:tabular-nums}
+#mining-ui-review .context-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--mine-border);background:var(--mine-surface);padding:10px 13px;border-radius:6px;font-size:12px;margin-bottom:17px}
+#mining-ui-review .source-quality{color:var(--mine-orange)}
+#mining-ui-review .pill{display:inline-block;border-radius:4px;padding:3px 7px;font-size:11px;font-weight:500;white-space:nowrap}
+#mining-ui-review .pill.blue{color:var(--mine-accent);background:var(--mine-tint)}
+#mining-ui-review .pill.red{color:var(--mine-danger);background:var(--mine-danger-soft)}
+#mining-ui-review .pill.amber{color:var(--mine-orange);background:var(--mine-soft);border:1px solid var(--mine-border)}
+#mining-ui-review .pill.grey{background:var(--mine-soft);color:var(--mine-muted)}
+#mining-ui-review .mine-button{border:1px solid var(--mine-border);background:var(--mine-surface);color:var(--mine-text);border-radius:5px;padding:7px 11px;white-space:nowrap;font-size:12px}
+#mining-ui-review .mine-button.primary{background:var(--mine-accent);border-color:var(--mine-accent);color:#fff}
+#mining-ui-review .mine-button.quiet{background:transparent;color:var(--mine-muted)}
+#mining-ui-review .replay-button{margin-left:auto}
+#mining-ui-review .workspace-grid{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:start}
+#mining-ui-review .workspace-content{min-width:0}
+#mining-ui-review .panel{background:var(--mine-surface);border:1px solid var(--mine-border);border-radius:7px;padding:16px;min-width:0;margin-bottom:14px}
+#mining-ui-review .section-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+#mining-ui-review h3{font-size:15px;font-weight:600}
+#mining-ui-review .minor{font-size:12px;color:var(--mine-muted)}
+#mining-ui-review .stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px}
+#mining-ui-review .stat{background:var(--mine-surface);border:1px solid var(--mine-border);border-radius:6px;padding:14px 13px;min-width:0}
+#mining-ui-review .stat .stat-label{font-size:12px;color:var(--mine-muted)}
+#mining-ui-review .stat .number{font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.5;display:block}
+#mining-ui-review .stat .number.red-text{color:var(--mine-danger)}
+#mining-ui-review .stat .number.word{font-size:18px;line-height:2.33}
+#mining-ui-review .stat .unit{font-size:11px;font-weight:400;margin-left:3px;color:var(--mine-muted)}
+#mining-ui-review .stat .stat-note{font-size:11px;color:var(--mine-muted)}
+#mining-ui-review .point-strip{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+#mining-ui-review .point-button{border:1px solid var(--mine-border);border-radius:5px;background:var(--mine-soft);color:var(--mine-muted);padding:6px 10px;font-size:12px}
+#mining-ui-review .point-button[aria-pressed="true"]{color:var(--mine-accent);background:var(--mine-tint);border-color:var(--mine-accent)}
+#mining-ui-review .legend{display:flex;gap:12px;align-items:center;flex-wrap:wrap;color:var(--mine-muted);font-size:11px}
+#mining-ui-review .line-swatch{display:inline-block;width:17px;border-top:2px solid var(--mine-accent);vertical-align:middle;margin-right:4px}
+#mining-ui-review .line-swatch.dashed{border-top-style:dashed}
+#mining-ui-review .line-swatch.redline{border-color:var(--mine-danger)}
+#mining-ui-review .plot{width:100%;height:238px;min-width:0}
+#mining-ui-review .plot svg{display:block;width:100%;height:100%;font-family:inherit;font-size:11px}
+#mining-ui-review .plot .axis-text{fill:var(--mine-muted)}
+#mining-ui-review .plot-note{display:flex;gap:10px;flex-wrap:wrap;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--mine-muted)}
+#mining-ui-review .event-item{border:1px solid var(--mine-border);background:var(--mine-surface);border-radius:5px;padding:11px;width:100%;text-align:left;color:var(--mine-text);margin-top:9px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:start}
+#mining-ui-review .event-item.selected{border-left:3px solid var(--mine-danger);background:var(--mine-soft)}
+#mining-ui-review .event-item strong{display:block;font-size:12px}
+#mining-ui-review .event-item small{display:block;color:var(--mine-muted);font-size:11px;margin-top:4px}
+#mining-ui-review .event-arrow{font-size:15px;color:var(--mine-accent)}
+#mining-ui-review .assistant-pane{background:var(--mine-surface);border:1px solid var(--mine-border);border-radius:7px;min-width:0;overflow:hidden}
+#mining-ui-review .assistant-header{padding:16px;border-bottom:1px solid var(--mine-border);background:var(--mine-tint)}
+#mining-ui-review .assistant-header h3{display:flex;gap:8px;align-items:center;color:var(--mine-accent)}
+#mining-ui-review .assistant-header p{font-size:11px;color:var(--mine-muted);margin-top:5px}
+#mining-ui-review .assistant-body{padding:15px}
+#mining-ui-review .task-heading{display:flex;gap:7px;align-items:center;margin-bottom:14px;font-size:12px}
+#mining-ui-review .task-heading strong{font-size:13px}
+#mining-ui-review .steps{list-style:none;margin:0 0 16px;padding:0}
+#mining-ui-review .steps li{padding:7px 0;display:flex;gap:9px;font-size:12px;align-items:center}
+#mining-ui-review .step-circle{height:19px;width:19px;border-radius:50%;background:var(--mine-tint);color:var(--mine-accent);display:grid;place-items:center;font-size:11px;flex-shrink:0}
+#mining-ui-review .steps li.waiting{color:var(--mine-muted)}
+#mining-ui-review .task-conclusion{border-top:1px solid var(--mine-border);padding-top:14px;font-size:13px;line-height:1.85}
+#mining-ui-review .task-conclusion .eyebrow{display:block;color:var(--mine-muted);font-size:11px;margin-bottom:6px}
+#mining-ui-review .evidence-link{display:block;text-align:left;border:0;border-left:2px solid var(--mine-accent);background:var(--mine-soft);color:var(--mine-accent);padding:9px;margin:13px 0;font-size:11px;width:100%}
+#mining-ui-review .assistant-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}
+#mining-ui-review .assistant-input{display:block;width:100%;border:1px solid var(--mine-border);background:var(--mine-soft);color:var(--mine-text);font:inherit;font-size:12px;padding:10px;border-radius:5px;margin-top:16px;resize:vertical;min-height:68px}
+#mining-ui-review .assistant-disclaimer{font-size:11px;color:var(--mine-muted);margin-top:11px}
+#mining-ui-review .product-footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:9px;color:var(--mine-muted);font-size:11px;padding:3px 0 10px}
+#mining-ui-review .model-empty{background:var(--mine-soft);padding:22px;border-radius:5px;border:1px dashed var(--mine-border);margin:15px 0}
+#mining-ui-review .model-empty strong{display:block;margin-bottom:8px;font-size:15px}
+#mining-ui-review .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:15px 0}
+#mining-ui-review .detail-cell{background:var(--mine-soft);padding:12px;border-radius:4px;font-size:13px}
+#mining-ui-review .detail-cell small{display:block;color:var(--mine-muted);font-size:11px;margin-bottom:4px}
+#mining-ui-review .flow{display:flex;gap:4px;flex-wrap:wrap;margin:15px 0}
+#mining-ui-review .flow span{padding:7px 9px;background:var(--mine-soft);color:var(--mine-muted);font-size:12px;border-bottom:2px solid var(--mine-border)}
+#mining-ui-review .flow span.current{background:var(--mine-tint);color:var(--mine-accent);border-bottom-color:var(--mine-accent)}
+#mining-ui-review .plain-list{margin:15px 0;padding-left:19px;color:var(--mine-muted);font-size:13px;line-height:2}
+#mining-ui-review .command{--mine-bg:#08192d;--mine-surface:#0e2742;--mine-soft:#102e4e;--mine-border:#274965;--mine-text:#deedf9;--mine-muted:#a3bdd5;--mine-accent:#49c4e5;--mine-tint:#163c59;--mine-danger:#ff9b99;--mine-danger-soft:#432b3a;--mine-orange:#efbd65;--mine-green:#6dd8ba;padding:0 20px 10px;color-scheme:dark}
+#mining-ui-review .command-header{display:grid;grid-template-columns:130px 1fr 160px;align-items:center;gap:12px;padding:21px 7px 17px;border-bottom:1px solid var(--mine-border)}
+#mining-ui-review .command-header>div:first-child strong{font-size:23px;color:var(--mine-accent)}
+#mining-ui-review .command-header small{display:block;font-size:11px;color:var(--mine-muted)}
+#mining-ui-review .command-title{text-align:center}
+#mining-ui-review .command-title small{letter-spacing:2px;font-size:10px;margin-bottom:3px}
+#mining-ui-review .command-title h2{font-size:23px;letter-spacing:2px;color:#f1f8ff}
+#mining-ui-review .command-nav{display:flex;flex-direction:row;justify-content:center;gap:4px;padding:10px 0;border-bottom:1px solid var(--mine-border);flex-wrap:wrap}
+#mining-ui-review .command-nav .nav-item{padding:9px 16px;border-radius:3px;font-size:13px}
+#mining-ui-review .command-nav .nav-item[aria-pressed="true"]{box-shadow:inset 0 -2px var(--mine-accent);background:#163e60}
+#mining-ui-review .command-clock{padding:12px 0;display:flex;gap:13px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--mine-muted)}
+#mining-ui-review .command-main{display:grid;grid-template-columns:minmax(0,1fr) 286px;gap:15px;align-items:start}
+#mining-ui-review .command .panel,#mining-ui-review .command .stat,#mining-ui-review .command .assistant-pane{border-radius:3px}
+#mining-ui-review .command .stats{grid-template-columns:1fr 1fr 1fr}
+#mining-ui-review .command .stat .number{font-size:32px}
+#mining-ui-review .command .stat .number.word{font-size:20px;line-height:2.4}
+#mining-ui-review .command .assistant-pane{margin-top:0}
+#mining-ui-review .command .event-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#mining-ui-review .command .event-item{margin-top:0}
+#mining-ui-review .command .assistant-input{min-height:78px}
+#mining-ui-review .command .plot{height:264px}
+#mining-ui-review .command .product-footer{padding:5px 0 10px}
+@media(min-width:1300px){#mining-ui-review .workspace-grid{grid-template-columns:minmax(0,1fr) 310px}#mining-ui-review .workbench-shell{grid-template-columns:170px minmax(0,1fr)}#mining-ui-review .workbench-main{padding:24px}#mining-ui-review .mine-nav{padding-top:27px}#mining-ui-review .command-main{grid-template-columns:minmax(0,1fr) 330px}#mining-ui-review .plot{height:290px}}
+@media(max-width:900px){#mining-ui-review .workbench-shell{grid-template-columns:125px minmax(0,1fr)}#mining-ui-review .workbench-main{padding:15px}#mining-ui-review .workspace-grid{grid-template-columns:minmax(0,1fr)}#mining-ui-review .assistant-body{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}#mining-ui-review .assistant-body .task-heading{grid-column:1/-1}#mining-ui-review .assistant-body .steps{grid-row:span 3}#mining-ui-review .assistant-body .task-conclusion{border-top:0;padding-top:0}#mining-ui-review .command-main{grid-template-columns:minmax(0,1fr)}#mining-ui-review .command-header{grid-template-columns:90px 1fr 130px}#mining-ui-review .command-title h2{font-size:20px}#mining-ui-review .header-location{display:none}#mining-ui-review [data-variant]{min-height:1350px}}
+@media(max-width:580px){#mining-ui-review .mine-header{padding:14px;gap:8px;flex-wrap:wrap}#mining-ui-review .brand strong{font-size:17px}#mining-ui-review .brand small{font-size:9px}#mining-ui-review .workbench-shell{display:block}#mining-ui-review .mine-nav{padding:7px;background:#142f4c}#mining-ui-review .nav-list{flex-direction:row;flex-wrap:wrap;gap:3px}#mining-ui-review .nav-item{padding:8px 9px;font-size:12px}#mining-ui-review .nav-caption,#mining-ui-review .nav-footer{display:none}#mining-ui-review .nav-glyph{display:none}#mining-ui-review .page-heading{align-items:start}#mining-ui-review .page-heading h2{font-size:20px}#mining-ui-review .clock strong{font-size:11px}#mining-ui-review .clock span{font-size:10px}#mining-ui-review .context-bar{gap:7px}#mining-ui-review .context-bar>span:not(.pill){font-size:11px}#mining-ui-review .stats{grid-template-columns:1fr;gap:8px}#mining-ui-review .stat{display:grid;grid-template-columns:1fr 1fr;align-items:center;padding:10px 13px}#mining-ui-review .stat .number{grid-column:2;grid-row:1/3;text-align:right;font-size:25px}#mining-ui-review .stat .number.word{font-size:17px}#mining-ui-review .panel{padding:12px}#mining-ui-review .assistant-body{display:block}#mining-ui-review .event-item{grid-template-columns:auto minmax(0,1fr);gap:7px}#mining-ui-review .event-arrow{display:none}#mining-ui-review .command{padding:0 12px 10px}#mining-ui-review .command-header{grid-template-columns:1fr;padding:14px 0;gap:9px}#mining-ui-review .command-header>div:first-child{display:none}#mining-ui-review .command-header .preview-label{justify-self:center}#mining-ui-review .command-nav .nav-item{padding:8px;font-size:12px}#mining-ui-review .command-title h2{font-size:20px}#mining-ui-review .command .stats{grid-template-columns:1fr}#mining-ui-review .command .event-list{grid-template-columns:1fr}#mining-ui-review .detail-grid{grid-template-columns:1fr}#mining-ui-review .product-footer{font-size:10px}#mining-ui-review [data-variant]{min-height:1820px}}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('mining-ui-review');
+  const views = ['综合监测','预测预警','事件研判','处置闭环','知识资料','模型评估'];
+  const glyphs = ['▦','⌁','◈','✓','▤','▥'];
+  const states = new Map();
+  const stored = window.openai?.widgetState?.modelContent;
+  const common = {fontSize:14};
+  function persist() {
+    const selections = {};
+    states.forEach((s, product) => selections[product.dataset.design] = {view:s.view, predicted:s.predicted, event:s.event});
+    window.openai?.setWidgetState?.({modelContent:{designSelections:selections,fontSize:common.fontSize},privateContent:null}).catch(()=>{});
+  }
+  function nav(product, state) {
+    product.querySelector('.nav-list').innerHTML = views.map((v,i)=>`<button class="nav-item" type="button" data-view="${v}" aria-pressed="${v===state.view}"><span class="nav-glyph" aria-hidden="true">${glyphs[i]}</span>${v}</button>`).join('');
+    const heading=product.querySelector('.view-heading'); if(heading)heading.textContent=state.view;
+  }
+  function stats() {return `<div class="stats"><div class="stat"><span class="stat-label">T0 最近原始测值</span><strong class="number red-text">0.86<span class="unit">%CH₄</span></strong><span class="stat-note">08:39:55 · 合成示例</span></div><div class="stat"><span class="stat-label">进行中事件</span><strong class="number">1<span class="unit">条</span></strong><span class="stat-note">红色 1 · 已结束 2 单列</span></div><div class="stat"><span class="stat-label">专业预测</span><strong class="number word">未接入</strong><span class="stat-note">主屏持续展示就绪状态</span></div></div>`;}
+  function chart(state) {return `<section class="panel"><div class="section-top"><h3>甲烷监测与预测</h3><span class="pill grey">阈值 · 团队草案</span></div><div class="point-strip"><button type="button" class="point-button" data-point="T0" aria-pressed="${state.point==='T0'}">T0 · 0.86%</button><button type="button" class="point-button" data-point="T2" aria-pressed="${state.point==='T2'}">T2 · 未接入</button><button type="button" class="point-button" data-point="T5" aria-pressed="${state.point==='T5'}">T5 · 未接入</button></div><div class="legend"><span><span class="line-swatch"></span>实测</span><span><span class="line-swatch dashed"></span>预测样式</span><span><span class="line-swatch redline"></span>实测报警值</span></div><div class="plot" role="img" aria-label="合成甲烷浓度曲线，数据时刻右侧为预测区域"></div><div class="plot-note"><span>未来区域单独标识 · 缺测保留断口</span><button class="mine-button quiet prediction-toggle" type="button">${state.predicted?'返回当前未就绪状态':'预览目标预测样式'}</button></div></section>`;}
+  function events(state) {return `<section class="panel"><div class="section-top"><h3>事件与待办</h3><span class="minor">进行中 1 / 已结束 2</span></div><div class="event-list"><button type="button" class="event-item ${state.event==='active'?'selected':''}" data-event="active"><span class="pill red">实测 · 红色</span><div><strong>T0 浓度触发报警值 <span class="pill amber">疑似标校</span></strong><small>08:39:20 至今 · 0.86% · 待确认</small></div><span class="event-arrow">↗</span></button><button type="button" class="event-item ${state.event==='ended'?'selected':''}" data-event="ended"><span class="pill grey">已结束</span><div><strong>T0 历史高位片段</strong><small>07:58—08:04 · 查看记录与复核</small></div><span class="event-arrow">↗</span></button></div></section>`;}
+  function details(state, disposition=false) {return `<section class="panel"><div class="section-top"><h3>${disposition?'处置闭环':'事件研判'} · T0 示例事件</h3><span class="pill red">实测超限</span></div><p class="minor">事件 EV-DEMO-0407 · 修订 v2 · 数据时点 08:40:00</p><div class="detail-grid"><div class="detail-cell"><small>原始测值 / 报警值</small><strong>0.86% / 0.80%</strong></div><div class="detail-cell"><small>质量与来源</small>疑似标校 · 原始记录可回查</div><div class="detail-cell"><small>事件状态</small>${state.event==='ended'?'已结束 · 记录保留':'进行中 · 待人工确认'}</div><div class="detail-cell"><small>成因判断</small>待核实 · 当前展示观测依据</div></div><div class="flow"><span class="current">确认事件</span><span>审核建议</span><span>记录执行</span><span>提交反馈</span><span>人工复核</span></div><p class="minor">本次针对历史数据演练，操作同时记录数据时刻和实际操作时间。</p><div class="model-empty"><strong>${disposition?'下一步：确认事件并核对现场记录':'依据面板'}</strong><p class="minor">监测片段、触发规则、模型运行和条文出处按同一事件整理。标校标记与红色事件并列展示。</p></div><button type="button" class="mine-button primary preview-confirm">${state.confirmed?'预览：已确认，进入建议审核':'预览确认事件'}</button></section>`;}
+  function knowledge() {return `<section class="panel"><div class="section-top"><h3>知识资料与经验</h3><span class="pill blue">按工作面筛选</span></div><div class="model-empty"><strong>示例条文 · 待审核</strong><p class="minor">页段原文 / 文档版本 / 适用工作面 / 审核状态同时呈现。</p></div><ul class="plain-list"><li>检索结果以可展开的原文段落展示。</li><li>建议中的每一项引用可返回具体页段。</li><li>演练经验保留独立标记，现场建议使用适用资料。</li></ul><button type="button" class="mine-button reference-preview">预览条文出处</button><p class="reference-preview-text minor" hidden>设计示例：资料标题、版本、页码与原文在侧边依据区展开。</p></section>`;}
+  function modelView(evaluation) {return `<section class="panel"><div class="section-top"><h3>${evaluation?'模型与评估':'预测预警'}</h3><span class="pill grey">专业预测未就绪</span></div><div class="model-empty"><strong>等待专业模型与有效输入窗口</strong><p class="minor">当前状态、缺失输入、模型版本和适用点位集中展示。</p></div><div class="detail-grid"><div class="detail-cell"><small>模型运行</small>未登记专业模型产物</div><div class="detail-cell"><small>软件流程基线</small>持久性基线 · 单独标识</div><div class="detail-cell"><small>物理浓度 / 决策分值</small>分开显示名称、量纲和用途</div><div class="detail-cell"><small>${evaluation?'评估报告':'预测区间'}</small>${evaluation?'冻结数据段 / 分子分母':'数据时刻右侧单独展示'}</div></div>${evaluation?'<p class="minor">评估页同时展示逐事件查准率、召回率、每有效监测小时误报数和标校两套口径；未完成评估时显示“暂无报告”。</p>':'<p class="minor">模型未就绪显示缺项。目标预测样式通过综合监测页单独预览。</p>'}</section>`;}
+  function assistant(state) {return `<div class="assistant-header"><h3>◇ 智能研判助手</h3><p>当前任务 · 工具步骤 · 结论 · 出处</p></div><div class="assistant-body"><div class="task-heading"><span class="pill blue">任务预览</span><strong>${state.advice?'起草处置建议':'分析 T0 示例事件'}</strong></div><ol class="steps"><li><span class="step-circle">✓</span>读取监测窗口</li><li><span class="step-circle">✓</span>核对触发规则</li><li><span class="step-circle">✓</span>整理原始依据</li><li class="waiting"><span class="step-circle">4</span>${state.advice?'核对批准条文后生成草稿':'待核对预案条文'}</li></ol><div class="task-conclusion" aria-live="polite"><span class="eyebrow">基于观测的结论</span><p>示例测值 <strong>0.86%</strong> 达到实测报警值 <strong>0.80%</strong>，红色事件保持可见。</p><p class="minor" style="margin-top:8px">疑似标校需结合记录核实，当前成因尚未确定。</p></div><button type="button" class="evidence-link">查看依据 · 原始行 / 规则 / 修订</button><div class="assistant-actions"><button type="button" class="mine-button primary analyze-button">分析当前事件</button><button type="button" class="mine-button advice-button">建议草稿</button></div><textarea class="assistant-input" aria-label="智能体问题设计预览" placeholder="围绕当前事件提问，如：哪些数据支持这次预警？"></textarea><p class="assistant-disclaimer">建议提交审核，执行与复核由人员记录。</p></div>`;}
+  function drawPlot(product,state) {
+    const plot=product.querySelector('.plot'); if(!plot)return;
+    const width=Math.max(220,plot.getBoundingClientRect().width),height=product.classList.contains('command')?264:238;
+    const pad={l:43,r:15,t:25,b:36}, inner=width-pad.l-pad.r,base=height-pad.b,top=pad.t;
+    const x=t=>pad.l+inner*t,y=v=>base-(base-top)*v/1.05,cut=.5;
+    const values=[.32,.34,.31,.34,.36,.39,.38,.43,.41,.44,.46,.48,.51,.52,.53,.58,.57,.61,.65,.7,.72,.77,.81,.84,.83,.86];
+    const observed=values.map((v,i)=>`${i?'L':'M'}${x(i/(values.length-1)*cut).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const forecast=[.86,.87,.82,.79,.76,.73,.71,.68,.65,.63];
+    const predicted=forecast.map((v,i)=>`${i?'L':'M'}${x(cut+(1-cut)*i/(forecast.length-1)).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    const grid=[0,.4,.8,1].map(v=>`<line x1="${pad.l}" y1="${y(v)}" x2="${width-pad.r}" y2="${y(v)}" stroke="var(--mine-border)"/><text class="axis-text" x="${pad.l-8}" y="${y(v)+4}" text-anchor="end">${v.toFixed(1)}</text>`).join('');
+    const ticks=width<340?[[0,'07:40'],[cut,'08:40'],[1,'09:40']]:[[0,'07:40'],[.25,'08:10'],[cut,'08:40'],[1,'09:40']];
+    plot.innerHTML=`<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${state.point}设计示例曲线，非真实监测数据"><title>实测与未来预测区域</title><rect x="${x(cut)}" y="${top}" width="${inner*(1-cut)}" height="${base-top}" fill="var(--mine-soft)"/>${grid}<text class="axis-text" x="${pad.l}" y="13">甲烷浓度 / %CH₄</text><line x1="${pad.l}" y1="${y(.8)}" x2="${width-pad.r}" y2="${y(.8)}" stroke="var(--mine-danger)" stroke-dasharray="5 4"/><text x="${width-pad.r-3}" y="${y(.8)-6}" fill="var(--mine-danger)" text-anchor="end">0.80</text><line x1="${x(cut)}" y1="${top}" x2="${x(cut)}" y2="${base}" stroke="var(--mine-muted)" stroke-dasharray="3 4"/><text class="axis-text" x="${x(cut)-5}" y="${top+12}" text-anchor="end">数据时刻</text>${state.point==='T0'?`<path d="${observed}" fill="none" stroke="var(--mine-accent)" stroke-width="2.5"/><circle cx="${x(cut)}" cy="${y(.86)}" r="4" fill="var(--mine-danger)"/>${state.predicted?`<path d="${predicted}" fill="none" stroke="var(--mine-accent)" stroke-width="2" stroke-dasharray="6 5"/><text class="axis-text" x="${x(.8)}" y="${y(.45)}" text-anchor="middle">合成预测样式</text>`:`<text class="axis-text" x="${x(.8)}" y="${y(.42)}" text-anchor="middle">专业预测未接入</text>`}`:`<text class="axis-text" x="${x(.3)}" y="${y(.45)}" text-anchor="middle">${state.point} 数据待接入</text>`}${ticks.map(([p,t])=>`<text class="axis-text" x="${x(p)}" y="${height-12}" text-anchor="${p===0?'start':p===1?'end':'middle'}">${t}</text>`).join('')}</svg>`;
+  }
+  function render(product) {
+    const state=states.get(product); nav(product,state);
+    const slot=product.querySelector('.workspace-content');
+    if(state.view==='综合监测')slot.innerHTML=stats()+chart(state)+events(state);
+    else if(state.view==='事件研判')slot.innerHTML=details(state)+events(state);
+    else if(state.view==='处置闭环')slot.innerHTML=details(state,true);
+    else if(state.view==='知识资料')slot.innerHTML=knowledge();
+    else slot.innerHTML=modelView(state.view==='模型评估');
+    product.querySelector('.assistant-pane').innerHTML=assistant(state);
+    drawPlot(product,state);
+  }
+  root.querySelectorAll('.mine-product').forEach(product=>{
+    const previous=stored?.designSelections?.[product.dataset.design];
+    const state={view:views.includes(previous?.view)?previous.view:'综合监测',predicted:!!previous?.predicted,event:previous?.event==='ended'?'ended':'active',point:'T0',advice:false,confirmed:false,playing:true};
+    states.set(product,state);render(product);
+    product.addEventListener('click',event=>{
+      const target=event.target.closest('button');if(!target)return;
+      if(target.dataset.view)state.view=target.dataset.view;
+      else if(target.dataset.event){state.event=target.dataset.event;state.view='事件研判';}
+      else if(target.dataset.point)state.point=target.dataset.point;
+      else if(target.classList.contains('prediction-toggle'))state.predicted=!state.predicted;
+      else if(target.classList.contains('evidence-link'))state.view='事件研判';
+      else if(target.classList.contains('advice-button')){state.advice=true;state.view='处置闭环';}
+      else if(target.classList.contains('analyze-button')){state.advice=false;state.view='事件研判';}
+      else if(target.classList.contains('preview-confirm'))state.confirmed=true;
+      else if(target.classList.contains('reference-preview')){product.querySelector('.reference-preview-text').hidden=false;return;}
+      else if(target.classList.contains('replay-button')){state.playing=!state.playing;target.textContent=state.playing?'Ⅱ 暂停回放':'▷ 继续回放';persist();return;}
+      else return;
+      render(product);persist();
+    });
+    new ResizeObserver(()=>drawPlot(product,states.get(product))).observe(product);
+  });
+  if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=>{root.style.setProperty('--mine-font',common.fontSize+'px');states.forEach((s,p)=>drawPlot(p,s));}});tweak.addSlider(common,'fontSize',{label:'界面字号',min:13,max:17,step:1,unit:'px'});}
+})();
+</script>
