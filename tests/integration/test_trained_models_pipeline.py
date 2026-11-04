@@ -152,11 +152,29 @@ def test_forecast_event_is_not_mislabeled_as_observed_cause(trained):
     assert runtime.calls == []
 
 
-def test_unvalidated_attribution_is_not_automatically_used(trained):
+def test_disabled_attribution_is_not_automatically_used(trained):
     _, _, runtime, pipeline, context, _ = trained
     runtime.manifests["attribution"]["automatic_attribution"] = False
     event = dict(event_id="event", event_revision=1, event_type="observed_exceedance", point_id="p0")
     fragments = [dict(id="target", point_id="p0", event_time=at(8).isoformat(), value=.7)]
     result = pipeline.attribute_event(context, event, fragments)
-    assert result["missing_fields"] == ["automatic_attribution_validation"]
+    assert result["missing_fields"] == ["automatic_attribution_enabled"]
     assert runtime.calls == []
+
+
+def test_same_event_revision_reuses_persisted_attribution_and_respects_switch(trained):
+    _, _, runtime, pipeline, context, _ = trained
+    event = dict(event_id="event", event_revision=1, event_type="observed_exceedance", point_id="p0")
+    fragments = [dict(id="target", point_id="p0", event_time=at(8).isoformat(), value=.7)]
+    first = pipeline.attribute_event(context, event, fragments)
+    repeated = pipeline.attribute_event(context, event, fragments)
+    assert first["run_id"] == repeated["run_id"]
+    assert repeated["reused"] is True
+    assert len(runtime.calls) == 1
+    revised = pipeline.attribute_event(context, dict(event, event_revision=2), fragments)
+    assert revised["run_id"] != first["run_id"]
+    assert len(runtime.calls) == 2
+    runtime.manifests["attribution"]["automatic_attribution"] = False
+    disabled = pipeline.attribute_event(context, event, fragments)
+    assert disabled["status"] == "not_ready"
+    assert len(runtime.calls) == 2

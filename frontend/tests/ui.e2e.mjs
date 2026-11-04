@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs'
 import { resolve, extname } from 'node:path'
 import test from 'node:test'
 import { chromium } from 'playwright'
+import { mineTime } from '../src/utils.mjs'
 
 const root = resolve(import.meta.dirname, '..', 'dist')
 const artifactDir = resolve(import.meta.dirname, 'artifacts')
@@ -18,12 +19,28 @@ const browserPath = process.env.UI_TEST_BROWSER || [
 const source = { source_id: 'qa-source', name: '界面验收数据（测试夹具）', face_id: 'TEST-UI' }
 const point = { point_id: 'qa-T0', source_id: source.source_id, face_id: source.face_id, name: 'T0（界面验收）', unit: '%CH4', unit_status: 'inferred' }
 const reference = { reference_id: 'qa-approved-reference', kind: 'document', source: 'UI验收资料', locator: { page: 1 }, text: '测试条文：核对监测记录。', operation_context: 'field_record' }
-let role, session, actions, advice, calls, pendingChat, taskState
-function reset(value) { role = value; session = null; actions = []; advice = []; calls = []; pendingChat = false; taskState = 'running' }
+let role, session, actions, advice, calls, pendingChat, taskState, attributionState
+function reset(value) { role = value; session = null; actions = []; advice = []; calls = []; pendingChat = false; taskState = 'running'; attributionState = 'completed' }
 function event() {
   return { event_id: 'qa-event', session_id: session.session_id, point_id: point.point_id, event_revision: 1,
     start_at: new Date(Date.parse(session.as_of) - 60000).toISOString(), event_type: 'observed_exceedance',
     alert_level: 'red', quality_flags: ['suspected_calibration'] }
+}
+function candidateAttribution() {
+  if (attributionState === 'not_ready') return { status: 'not_ready', causal_status: 'evidence_only',
+    missing_fields: ['six_channel_point_bindings', 'complete_61_minute_six_channel_history', 'automatic_attribution_enabled'] }
+  if (attributionState === 'failed') return { status: 'failed', causal_status: 'evidence_only', error_code: 'model_inference_failed' }
+  const targetTime = event().start_at
+  return { status: 'completed', causal_status: 'candidate_attribution', model_id: 'kmeans-svc-31002',
+    version: 'trained-20261103-v1', model_version: 'trained-20261103-v1', feature_version: 'legacy_row_stats_v1',
+    preprocessing: 'absolute', as_of: session.as_of, input_as_of: new Date(Date.parse(targetTime) - 300000).toISOString(),
+    horizon_seconds: 300, target_time: targetTime, target_observation_id: 'qa-target-observation',
+    target_policy: 'first_model_threshold_observation_in_event', probability_semantics: 'cluster_membership',
+    ...(attributionState === 'completed' ? { cluster_probabilities: [{ cluster_id: 0, probability: 0.62 }, { cluster_id: 2, probability: 0.38 }] } : {}),
+    selected_cluster_ids: [0, 2], candidate_causes: ['割煤速度快', '地质构造影响'],
+    training_range: { start_at: '2021-11-01T00:00:00+08:00', end_at: '2021-12-01T00:00:00+08:00' },
+    run_id: 'qa-attribution-run', session_id: session.session_id, source_id: source.source_id, face_id: source.face_id,
+    event_id: 'qa-event', event_revision: 1, input_origin: 'server_observations', input_refs: ['qa-input-1'], created_at: session.as_of }
 }
 function casePacket() {
   const last = actions.at(-1)
@@ -68,7 +85,8 @@ async function api(path, request) {
   if (path.pathname === '/api/rules') return { rule_version: 'qa-draft', status: 'team-draft', source: 'UI验收规则（测试夹具）', observed_red_threshold: 0.8, observed_orange_threshold: 0.65, orange_duration_seconds: 300, forecast_yellow_threshold: 0.65 }
   if (path.pathname === '/api/models') return [{ model_id: 'QA离线基线', version: 'test', model_type: 'baseline', input_window: 2, horizon_seconds: 60 }]
   if (path.pathname === '/api/evidence') return { event_snapshot: event(), snapshot_as_of: session.as_of,
-    observation_fragments: [], condition_hints: [{ kind: 'suspected_calibration', text: 'UI验收：疑似标校提示。' }], missing_fields: [] }
+    observation_fragments: [], condition_hints: [{ kind: 'suspected_calibration', text: 'UI验收：疑似标校提示。' }], missing_fields: [],
+    candidate_attribution: candidateAttribution() }
   if (path.pathname === '/api/cases/qa-event') return casePacket()
   if (path.pathname === '/api/cases/qa-event/actions') {
     actions.push({ ...body, action_id: `qa-action-${actions.length}`, actor_id: 'qa-user', occurred_at: new Date().toISOString(), data_as_of: session.as_of })
@@ -127,6 +145,33 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
         assert.equal(calls.some(call => call.path === '/api/evaluations'), userRole === 'safety_management')
         await page.getByRole('button', { name: /实测超限/ }).click()
         await page.getByPlaceholder('填写人工核实、执行、反馈或复核记录').waitFor()
+        const attributionCard = page.getByRole('region', { name: '溯源结果', exact: true })
+        await attributionCard.getByText('已完成', { exact: true }).waitFor()
+        const attributionText = await attributionCard.innerText()
+        for (const text of ['候选原因', '割煤速度快', '地质构造影响', '模型版本', 'kmeans-svc-31002', 'trained-20261103-v1',
+          '目标时间', mineTime(candidateAttribution().target_time), '输入截止', mineTime(candidateAttribution().input_as_of), '模型提前量']) {
+          assert.ok(attributionText.includes(text), `溯源卡展示 ${text}`)
+        }
+        await attributionCard.locator('summary', { hasText: '类别概率' }).click()
+        await attributionCard.getByRole('cell', { name: '62.0%', exact: true }).waitFor()
+        await attributionCard.getByRole('cell', { name: '38.0%', exact: true }).waitFor()
+        if (userRole === 'ventilation') {
+          attributionState = 'not_ready'
+          await page.getByRole('button', { name: /实测超限/ }).click()
+          await attributionCard.getByText('待补充', { exact: true }).waitFor()
+          await attributionCard.getByText('补齐六路测点映射', { exact: true }).waitFor()
+          await attributionCard.getByText('补齐61个连续分钟时刻的六路数据', { exact: true }).waitFor()
+          await attributionCard.getByText('开启事件溯源', { exact: true }).waitFor()
+          assert.equal(await attributionCard.getByText(/割煤速度快|six_channel_point_bindings/).count(), 0)
+          attributionState = 'failed'
+          await page.getByRole('button', { name: /实测超限/ }).click()
+          await attributionCard.getByText('分析未完成', { exact: true }).waitFor()
+          assert.equal(await attributionCard.getByText(/model_inference_failed/).count(), 0)
+          attributionState = 'completed_without_probabilities'
+          await page.getByRole('button', { name: /实测超限/ }).click()
+          await attributionCard.getByText('已完成', { exact: true }).waitFor()
+          assert.equal(await attributionCard.locator('summary', { hasText: '类别概率' }).count(), 0)
+        }
         assert.equal(await page.getByRole('button', { name: '批准建议', exact: true }).count(), userRole === 'safety_management' ? 1 : 0)
         if (userRole === 'safety_management') {
           await page.clock.runFor(15000)
@@ -179,6 +224,7 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
           const chartBounds = await page.locator('.chart').evaluate(element => ({ parent: element.clientWidth, canvas: element.querySelector('canvas')?.clientWidth }))
           assert.ok(chartBounds.canvas > chartBounds.parent * 0.9, '曲线画布覆盖可用宽度')
           await mkdir(artifactDir, { recursive: true })
+          await attributionCard.screenshot({ path: resolve(artifactDir, 'ui-attribution-test-fixture.png') })
           await page.evaluate(() => scrollTo(0, 0))
           await page.screenshot({ path: resolve(artifactDir, 'ui-acceptance-test-fixture.png') })
           await page.getByText('创建新会话', { exact: true }).click()
@@ -187,9 +233,11 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
           await page.getByRole('button', { name: '刷新现场时间', exact: true }).click()
           await page.waitForFunction(() => !document.querySelector('.loading-note'))
           assert.deepEqual(calls.findLast(call => call.path.endsWith('/tick')).body, {}, '现场刷新使用服务端时间')
+          await page.getByRole('button', { name: /实测超限/ }).click()
           await page.setViewportSize({ width: 390, height: 844 })
           await page.clock.runFor(100)
           assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), '窄屏无整页水平溢出')
+          await attributionCard.screenshot({ path: resolve(artifactDir, 'ui-attribution-mobile-test-fixture.png') })
           await page.screenshot({ path: resolve(artifactDir, 'ui-mobile-test-fixture.png') })
         }
         assert.deepEqual(failures, [], '浏览器无运行时异常')

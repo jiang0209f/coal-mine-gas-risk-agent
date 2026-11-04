@@ -9,7 +9,7 @@
 | sessions | 会话模式、状态和单调数据时钟 | create_session/apply_action/get_context | data目录 |
 | prediction | 不可变模型版本、闭合输入窗口、预测适配与运行记录 | register_model/run_prediction/get_forecast | data |
 | alerts | 团队草案规则、实测/预测事件、不可变事件修订 | evaluate_observed/evaluate_forecast/query_events | data/预测结果 |
-| traceability | 冻结事件对应的观测、模型和规则依据 | get_event_evidence | alerts/data/prediction |
+| traceability | 冻结事件对应的观测、规则和模型依据，附带候选溯源 | get_event_evidence | alerts/data/prediction/溯源适配器 |
 | knowledge | 原文页段、审核、检索、建议内容版本、经验 | import_reference/search_documents/draft_advice | 服务端依据及批准引用 |
 | cases | 人工确认、建议审核事实、执行/反馈/复核及冻结快照 | record_action/get_case/export_reviewed_case | alerts/knowledge |
 | agent | DeepSeek八工具编排、任务、上下文隔离与审计 | chat/submit/get_task/cancel_task | 只读工具及建议草稿 |
@@ -52,6 +52,10 @@ flowchart LR
 
 `gas_forecast` 封装 FEDformer＋12阶段 LightGBM 残差模型；`gas_attribution` 封装六通道 KMeans/SVC 候选溯源。两者通过 `ModelRuntime` 在独立 Python 环境执行，受信任的本地目录清单绑定模型版本、来源及工作面。路径和运行命令由本地配置提供。
 
-`GET /api/model-packages` 查看当前会话适用的模型及实验状态；`POST /api/model-package-runs` 提交准备好的特征；`GET /api/model-package-runs/{run_id}` 查询本会话运行。准备特征入口记录 `submitted_features`；常规专业预测由 `TrainedModelsPipeline` 构造同训练定义的特征，记录 `server_observations` 和输入行引用。因果候选只处理观测事件中达到模型阈值的目标时刻，输入截止于该时刻之前300秒；当前SVC自动调用关闭。
+`GET /api/model-packages` 查看当前会话适用的模型及实验状态；`POST /api/model-package-runs` 提交准备好的特征；`GET /api/model-package-runs/{run_id}` 查询本会话运行。准备特征入口记录 `submitted_features`；常规专业预测由 `TrainedModelsPipeline` 构造同训练定义的特征，记录 `server_observations` 和输入行引用。
+
+现有SVC自动溯源已启用。`GET /api/evidence` 对实测事件中首个达到模型阈值0.65的观测构造输入，输入截止于目标时刻之前300秒，读取截至该时间的61个连续分钟时刻、共366条六通道观测。结果保存在 `attribution_run`，证据响应附带 `candidate_attribution`。同会话、事件修订、模型版本及特征配置复用已保存的运行；事件修订变化后重新计算。当前触发点为依据查询，Runner仍负责预测和预警。
 
 依据追溯继续使用 `traceability`；候选溯源的类别概率为聚类成员概率。输入合同、产物导出及调用命令见[模型封装说明](model-packaging.md)。
+
+后续页面联动、主动简报、知识与人工处置、竞赛回放和现场接入见[整体模块设计 v0.6](module-design-v0.6.md)。

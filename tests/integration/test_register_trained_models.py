@@ -104,7 +104,7 @@ def test_registration_imports_six_channels_and_preserves_original_namespace(setu
         manifest=json.loads((folder/'manifest.json').read_text(encoding='utf-8'))
         assert manifest['feature_points']==FEATURE_POINTS
         assert manifest['source_id']=='multisensor-31002-2022'
-    assert json.loads((setup['attribution_bundle']/'manifest.json').read_text(encoding='utf-8'))['automatic_attribution'] is False
+    assert json.loads((setup['attribution_bundle']/'manifest.json').read_text(encoding='utf-8'))['automatic_attribution'] is True
 
 
 def test_repeat_is_idempotent_and_backup_is_not_overwritten(setup):
@@ -170,3 +170,94 @@ def test_corrupt_existing_backup_is_not_silently_reused(setup):
         register_trained_models(**setup)
     assert backup.read_bytes()==b'corrupt backup'
     assert sha(setup['runtime_dir']/'app.db')==original_db
+
+
+@pytest.mark.parametrize('enabled',[True,False])
+def test_explicit_attribution_switch_updates_manifest_report_without_changing_weights(setup,enabled):
+    weights={str(p):sha(p) for folder in (setup['forecast_bundle'],setup['attribution_bundle'])
+             for p in folder.iterdir() if p.name!='manifest.json'}
+
+    result=register_trained_models(**setup,automatic_attribution=enabled)
+
+    manifest=json.loads((setup['attribution_bundle']/'manifest.json').read_text(encoding='utf-8'))
+    assert manifest['automatic_attribution'] is enabled
+    assert result['automatic_attribution'] is enabled
+    assert json.loads((setup['report_dir']/'registration-report.json').read_text(encoding='utf-8'))['automatic_attribution'] is enabled
+    assert {str(p):sha(p) for folder in (setup['forecast_bundle'],setup['attribution_bundle'])
+            for p in folder.iterdir() if p.name!='manifest.json'}==weights
+    assert count_source(setup['runtime_dir'],'history-31002')==1
+
+
+@pytest.mark.parametrize('enabled',[True,False])
+def test_unspecified_switch_preserves_existing_manifest_value(setup,enabled):
+    path=setup['attribution_bundle']/'manifest.json'
+    manifest=json.loads(path.read_text(encoding='utf-8'))
+    manifest['automatic_attribution']=enabled
+    write_json(path,manifest)
+
+    result=register_trained_models(**setup)
+
+    assert result['automatic_attribution'] is enabled
+    assert json.loads(path.read_text(encoding='utf-8'))['automatic_attribution'] is enabled
+
+
+def test_repeat_registration_keeps_enabled_attribution(setup):
+    first=register_trained_models(**setup,automatic_attribution=True)
+    second=register_trained_models(**setup)
+    assert first['automatic_attribution'] is True
+    assert second['automatic_attribution'] is True
+    assert second['imported_rows_this_run']==0
+    assert second['artifacts_unchanged'] is True
+
+
+def test_manifest_without_switch_defaults_to_disabled(setup):
+    path=setup['attribution_bundle']/'manifest.json'
+    manifest=json.loads(path.read_text(encoding='utf-8'))
+    manifest.pop('automatic_attribution')
+    write_json(path,manifest)
+    result=register_trained_models(**setup)
+    assert result['automatic_attribution'] is False
+
+
+@pytest.mark.parametrize('invalid',[0,1,'true','false',[],{}])
+def test_non_boolean_switch_is_rejected_before_mutation(setup,invalid):
+    database_hash=sha(setup['runtime_dir']/'app.db')
+    catalog_before=setup['catalog'].read_bytes()
+    manifest_before=(setup['attribution_bundle']/'manifest.json').read_bytes()
+    with pytest.raises(ValueError):
+        register_trained_models(**setup,automatic_attribution=invalid)
+    assert sha(setup['runtime_dir']/'app.db')==database_hash
+    assert setup['catalog'].read_bytes()==catalog_before
+    assert (setup['attribution_bundle']/'manifest.json').read_bytes()==manifest_before
+
+
+@pytest.mark.parametrize('invalid',[None,0,1,'true'])
+def test_non_boolean_existing_manifest_switch_is_rejected(setup,invalid):
+    path=setup['attribution_bundle']/'manifest.json'
+    manifest=json.loads(path.read_text(encoding='utf-8'))
+    manifest['automatic_attribution']=invalid
+    write_json(path,manifest)
+    database_hash=sha(setup['runtime_dir']/'app.db')
+    with pytest.raises(ValueError):
+        register_trained_models(**setup)
+    assert sha(setup['runtime_dir']/'app.db')==database_hash
+
+
+@pytest.mark.parametrize('flag,expected',[(None,None),('--automatic-attribution',True),('--no-automatic-attribution',False)])
+def test_cli_parses_attribution_switch_without_touching_files(monkeypatch,capsys,flag,expected):
+    from app.scripts import register_trained_models as module
+
+    captured=[]
+    def record(**arguments):
+        captured.append(arguments)
+        return {'status':'completed'}
+    monkeypatch.setattr(module,'register_trained_models',record)
+    arguments=[]
+    for name in ('january','february','forecast-bundle','attribution-bundle','runtime-dir','catalog','report-dir'):
+        arguments.extend(['--'+name,'fixture-'+name])
+    if flag:
+        arguments.append(flag)
+
+    assert module.main(arguments)==0
+    assert captured[0]['automatic_attribution'] is expected
+    assert json.loads(capsys.readouterr().out)['status']=='completed'

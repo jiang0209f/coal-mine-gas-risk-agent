@@ -85,7 +85,7 @@ def _point_specs():
             for index,(name,quantity) in enumerate(zip(CHANNEL_NAMES,signals))]
 
 
-def _augment(manifest):
+def _augment(manifest, automatic_attribution=None):
     result = deepcopy(manifest)
     bindings = dict(source_id=SOURCE_ID,face_id=FACE_ID,feature_points=FEATURE_POINTS,
                     feature_pipeline_version=FEATURE_PIPELINE_VERSION)
@@ -95,7 +95,10 @@ def _augment(manifest):
         result[field] = deepcopy(value)
     result["deployment_stage"] = "experimental"
     if result["kind"] == "gas_attribution":
-        result["automatic_attribution"] = False
+        enabled = result.get("automatic_attribution",False) if automatic_attribution is None else automatic_attribution
+        if type(enabled) is not bool:
+            raise ValueError("自动溯源设置须为布尔值")
+        result["automatic_attribution"] = enabled
     return result
 
 
@@ -155,7 +158,10 @@ def _source_count(store, source_id):
         return connection.execute(select(func.count()).select_from(observations).where(observations.c.source_id==source_id)).scalar_one()
 
 
-def register_trained_models(january, february, forecast_bundle, attribution_bundle, runtime_dir, catalog, report_dir):
+def register_trained_models(january, february, forecast_bundle, attribution_bundle, runtime_dir, catalog, report_dir,
+                            *, automatic_attribution: bool | None = None):
+    if automatic_attribution is not None and type(automatic_attribution) is not bool:
+        raise ValueError("自动溯源设置须为布尔值")
     january,february,forecast_bundle,attribution_bundle,runtime_dir,catalog,report_dir = [Path(p).resolve() for p in
         (january,february,forecast_bundle,attribution_bundle,runtime_dir,catalog,report_dir)]
     source_files = []
@@ -168,7 +174,7 @@ def register_trained_models(january, february, forecast_bundle, attribution_bund
     attribution_reader = ModelBundle(attribution_bundle,"gas_attribution")
     forecast_reader.require_artifacts(_FORECAST_ARTIFACTS)
     attribution_reader.require_artifacts(["classifier","training_metadata"])
-    forecast,attribution = _augment(forecast_reader.manifest),_augment(attribution_reader.manifest)
+    forecast,attribution = _augment(forecast_reader.manifest),_augment(attribution_reader.manifest,automatic_attribution)
     if not any(isinstance(item,dict) and item.get("sha256")==source_files[0]["sha256"] for item in forecast.get("training_data",[])):
         raise ValueError("January文件摘要与预测训练依据不符")
     assessment = forecast.get("validation_assessment",{})
@@ -236,7 +242,7 @@ def register_trained_models(january, february, forecast_bundle, attribution_bund
                   source_observations_after=count_after,feature_points=deepcopy(FEATURE_POINTS),
                   feature_pipeline_version=FEATURE_PIPELINE_VERSION,models=registered_models,catalog_appended=appended,
                   original_namespace_unchanged=True,original_source_observations_before=original_count,
-                  original_source_observations_after=original_after,automatic_attribution=False,
+                  original_source_observations_after=original_after,automatic_attribution=attribution["automatic_attribution"],
                   artifacts_unchanged=True,artifact_hashes={"forecast":deepcopy(forecast["artifacts"]),"attribution":deepcopy(attribution["artifacts"])},
                   catalog_sha256=_sha(catalog),manifest_sha256={"forecast":_sha(forecast_bundle/"manifest.json"),"attribution":_sha(attribution_bundle/"manifest.json")})
     _json(report_dir/"registration-report.json",result)
@@ -249,6 +255,8 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description="备份并接入已训练31002模型和六通道历史数据")
     for field in ("january","february","forecast-bundle","attribution-bundle","runtime-dir","catalog","report-dir"):
         parser.add_argument("--"+field,type=Path,required=True)
+    parser.add_argument("--automatic-attribution",action=argparse.BooleanOptionalAction,default=None,
+                        help="启用或关闭自动溯源；省略时保留现有设置")
     arguments=parser.parse_args(argv)
     try:
         result=register_trained_models(**vars(arguments))

@@ -2,6 +2,8 @@
 
 from copy import deepcopy
 from datetime import timedelta, timezone, datetime
+import hashlib
+import json
 from math import floor
 from uuid import uuid4
 
@@ -103,9 +105,21 @@ class TrainedModelsPipeline:
                 return unavailable(["observed_target_at_model_threshold"])
             target = min(candidates, key=lambda r: timestamp(r["event_time"]))
             origin = timestamp(target["event_time"]) - timedelta(seconds=manifest["horizon_seconds"])
-            # Production manifests keep automatic attribution disabled until its audit is accepted.
+            # Automatic invocation follows the persisted model configuration.
             if manifest.get("automatic_attribution", False) is not True:
-                return unavailable(["automatic_attribution_validation"])
+                return unavailable(["automatic_attribution_enabled"])
+            identity = dict(session_id=context.session_id, source_id=context.source_id,
+                            event_id=event["event_id"], event_revision=event["event_revision"],
+                            model_id=package["model_id"], model_version=package["model_version"],
+                            target_observation_id=target["id"], input_as_of=utcstr(origin),
+                            model_configuration={key: manifest.get(key) for key in
+                                                 ("feature_version", "preprocessing", "feature_points", "artifacts")})
+            cache_key = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+            previous = self.store.get("attribution_index", cache_key)
+            if previous:
+                cached = self.store.get("attribution_run", previous["run_id"])
+                if cached is not None:
+                    return {**cached, "reused": True}
             rows, references = self._minutes(context, points, origin-timedelta(minutes=60), origin+timedelta(microseconds=1), origin)
             result = self.runtime.infer(package["model_id"], package["model_version"], attribution_request(rows, origin))
             if result["status"] != "completed":
@@ -115,8 +129,10 @@ class TrainedModelsPipeline:
                    "target_observation_id": target["id"], "target_time": target["event_time"],
                    "target_policy": "first_model_threshold_observation_in_event", "input_as_of": utcstr(origin),
                    "as_of": utcstr(context.as_of), "input_origin": "server_observations", "input_refs": references,
-                   "created_at": utcstr(now_utc())}
-            self.store.put("attribution_run", run["run_id"], run)
+                   "created_at": utcstr(now_utc()), "reused": False, "cache_key": cache_key}
+            with self.store.transaction() as connection:
+                self.store.put("attribution_run", run["run_id"], run, connection)
+                self.store.put("attribution_index", cache_key, {"run_id": run["run_id"]}, connection)
             return deepcopy(run)
         except ModelNotReady as error:
             return unavailable(error.missing_fields)
