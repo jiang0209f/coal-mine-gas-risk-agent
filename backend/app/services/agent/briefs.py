@@ -335,7 +335,7 @@ class EventBriefsService:
                 return self.agent._public(self.agent._save(task))
             if context.source_id not in self.settings.event_brief_allowed_source_ids:
                 task.update(state="failed",error_code="cloud_source_not_authorized",
-                            final_text="该来源的事件摘要外发尚未确认，已保存本地工具结果和依据。")
+                            final_text="该来源仅在本机处理，已保存本地工具结果和依据。")
                 return self.agent._public(self.agent._save(task))
             task["messages"]=[dict(role="system",content=_SYSTEM),dict(role="user",content=json.dumps(_redact(dict(
                 event_facts=evidence["data"],citations=task["citations"],document_search_state=task["document_search_state"])),ensure_ascii=False))]

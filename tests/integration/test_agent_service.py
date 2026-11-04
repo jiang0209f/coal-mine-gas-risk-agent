@@ -102,7 +102,8 @@ def configured_service(parts, responses):
     store, _, _, services, _ = parts
     adapter = FakeAdapter(responses)
     service = AgentService(
-        store, services, Settings(_env_file=None, deepseek_api_key="offline-test-key"),
+        store, services, Settings(_env_file=None, deepseek_api_key="offline-test-key",
+                                  event_brief_allowed_source_ids=["source"]),
         adapter_factory=lambda settings: adapter,
     )
     return service, adapter
@@ -139,6 +140,65 @@ def test_no_key_uses_actual_event_template_without_constructing_adapter(agent_pa
     assert task["evidence_refs"]
     assert calls[0][0] == "query_events"
     assert service.get_task(actor, task["task_id"]) == task
+
+
+@pytest.mark.parametrize("background", [False, True])
+@pytest.mark.parametrize("mode", ["historical_replay", "simulated_stream"])
+def test_nonallowlisted_source_uses_local_results_without_constructing_adapter(agent_parts, background, mode):
+    store, actor, context, services, calls = agent_parts
+    context = context.model_copy(update={"mode": mode})
+    store.put("source", "source", {"source_id": "source", "face_id": "31002", "name": "合成演示"})
+    constructions = []
+    service = AgentService(
+        store, services, Settings(_env_file=None, deepseek_api_key="offline-test-key",
+                                  event_brief_allowed_source_ids=["synthetic-isolated-only"]),
+        adapter_factory=lambda settings: constructions.append(settings),
+    )
+    if background:
+        scheduled = []
+        task = service.submit(context, "查看当前事件", schedule=scheduled.append)
+        scheduled[0]()
+        task = service.get_task(actor, task["task_id"])
+    else:
+        task = service.chat(context, "查看当前事件")
+
+    assert constructions == []
+    assert task["state"] == "completed"
+    assert task["method"] == "structured_template"
+    assert task["local_reason"] == "cloud_source_not_authorized"
+    assert task["model"] is None and task["usage"] == {}
+    assert task["result_cards"] and task["evidence_refs"]
+    assert calls[0][0] == "query_events"
+
+
+def test_revoking_source_before_continuation_keeps_history_local(agent_parts):
+    service, adapter = configured_service(agent_parts, [reply("合成来源首次回答")])
+    context = agent_parts[2]
+    first = service.chat(context, "合成问题")
+    assert len(adapter.requests) == 1
+    service.settings.event_brief_allowed_source_ids = []
+
+    resumed = service.chat(context, {"task_id": first["task_id"], "answer": "继续查询"})
+
+    assert len(adapter.requests) == 1
+    assert resumed["state"] == "completed"
+    assert resumed["method"] == "structured_template"
+    assert resumed["local_reason"] == "cloud_source_not_authorized"
+    assert resumed["model"] == first["model"] and resumed["usage"] == first["usage"]
+
+
+def test_revoking_source_after_submission_prevents_adapter_construction(agent_parts):
+    service, adapter = configured_service(agent_parts, [reply("不可外发")])
+    scheduled = []
+    pending = service.submit(agent_parts[2], "排队问题", schedule=scheduled.append)
+    service.settings.event_brief_allowed_source_ids = []
+
+    scheduled[0]()
+
+    result = service.get_task(agent_parts[1], pending["task_id"])
+    assert result["method"] == "structured_template"
+    assert result["local_reason"] == "cloud_source_not_authorized"
+    assert adapter.requests == []
 
 
 def test_tool_roundtrip_injects_frozen_context_and_preserves_call_id(agent_parts):
@@ -341,7 +401,8 @@ def test_cancellation_during_provider_call_prevents_pending_tool_execution(agent
             return reply(None, [call("query_events", {})])
 
     adapter = CancellingAdapter([])
-    service = AgentService(store, services, Settings(_env_file=None, deepseek_api_key="offline-test-key"),
+    service = AgentService(store, services, Settings(_env_file=None, deepseek_api_key="offline-test-key",
+                                                   event_brief_allowed_source_ids=["source"]),
                            adapter_factory=lambda settings: adapter)
     holder["service"] = service
 
@@ -469,7 +530,8 @@ def test_real_services_advice_tool_preserves_event_revision_and_approved_referen
             reply(None, [call("draft_advice", {"event_id": event["event_id"], "reference_ids": [reference["reference_id"]]})]),
             reply("已生成带出处的草稿。"),
         ])
-        agent = AgentService(store, services, Settings(_env_file=None, deepseek_api_key="offline-test-key"),
+        agent = AgentService(store, services, Settings(_env_file=None, deepseek_api_key="offline-test-key",
+                                                     event_brief_allowed_source_ids=[context.source_id]),
                              adapter_factory=lambda settings: adapter)
 
         task = agent.chat(context, "生成当前事件建议")

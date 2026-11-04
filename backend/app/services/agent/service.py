@@ -341,6 +341,10 @@ class AgentService:
         current = self.store.get("task", task["task_id"])
         if current["state"] == "cancelled":
             return current
+        task.pop("local_reason", None)
+        if context.source_id not in self.settings.event_brief_allowed_source_ids:
+            task["local_reason"] = "cloud_source_not_authorized"
+            return self._template(task, context)
         if not self.settings.deepseek_configured:
             return self._template(task, context)
         adapter = None

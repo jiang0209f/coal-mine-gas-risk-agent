@@ -1,6 +1,6 @@
 # 采煤工作面瓦斯风险智能体
 
-提供历史回放、模拟数据流和现场标准数据接收，完成监测导入、预警、依据查询、资料检索、建议草拟、人工处置和评估。后端 FastAPI + SQLAlchemy，前端 Vue 3 + ECharts，DeepSeek通过8个业务工具读取数据。
+提供历史回放、模拟数据流和现场标准数据接收，完成监测导入、预警、依据查询、资料检索、建议草拟、人工处置和评估。后端 FastAPI + SQLAlchemy，前端 Vue 3 + ECharts。真实来源在本机处理，DeepSeek仅通过业务工具读取纯合成隔离数据。
 
 专业模型通过适配器接入；当前内置持久性基线用于检查软件流程，缺少模型或有效输入返回 `not_ready`。预警规则标记为团队草案，物理浓度与决策分值分别保存。详见[模块与接口](docs/architecture.md)。
 
@@ -10,7 +10,7 @@ FEDformer＋LightGBM 预测和 KMeans/SVC 候选溯源已用31002六通道加工
 
 正式深蓝工作台已接通真实监测、指定版本预测和事件溯源，支持恢复已保存预测、查看12个区间明细及切换事件依据。操作与真实数据验收见[前端联动说明](docs/frontend-linkage.md)。
 
-新增预警或等级升级后可后台生成[主动研判简报](docs/event-briefs.md)，展示工具进度、冻结依据和引用。来源外发允许名单默认关闭；确认[字段与目的地](docs/event-brief-cloud-fields.md)后配置 `EVENT_BRIEF_ALLOWED_SOURCE_IDS`，未授权来源保留本地结果。
+新增预警或等级升级后提交[主动研判任务](docs/event-briefs.md)，展示工具进度、冻结依据和引用。真实来源保留本机依据；纯合成隔离来源可生成DeepSeek研判简报。`EVENT_BRIEF_ALLOWED_SOURCE_IDS` 为普通对话和主动简报共用的合成来源允许名单，生产保持 `[]`。详见[数据使用规则](docs/event-brief-cloud-fields.md)。
 
 ## 安装与启动
 
@@ -30,7 +30,7 @@ cd ..
 
 初始化时交互输入至少12字符的密码。打开[工作台](http://127.0.0.1:8000/)登录；[接口文档](http://127.0.0.1:8000/docs)提供实际OpenAPI定义。前端开发可运行 `npm run dev`，代理后端8000端口。
 
-配置 `.env` 的 `DEEPSEEK_API_KEY`。缺少Key时，对话基于实际事件查询生成结构化模板。真实模型连接诊断：`python -m app.scripts.check_deepseek`。模型名和地址可配置，协议见[DeepSeek官方文档](https://api-docs.deepseek.com/)。
+配置 `.env` 的 `DEEPSEEK_API_KEY`。普通对话在缺少Key或来源未列入合成允许名单时，基于本机事件查询返回 `structured_template`；未允许来源同时记录 `local_reason=cloud_source_not_authorized`。系统尚未部署本地大模型。模型连接诊断：`python -m app.scripts.check_deepseek`，仅发送固定测试文本和随机数。模型名和地址可配置，协议见[DeepSeek官方文档](https://api-docs.deepseek.com/)。
 
 `RUNTIME_DIR`指定数据目录，默认 `local_data`；`DATABASE_URL`留空使用该目录的SQLite文件，也支持PostgreSQL连接。当前集成验收使用SQLite。`COAL_AGENT_ENV_FILE`可在启动进程时指定单独保存的私有配置。环境、密钥、原始数据和模型产物由Git排除。
 
