@@ -1,7 +1,7 @@
 import { readFile, access } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-const root = resolve(import.meta.dirname, '..', 'dist')
+const root = resolve(process.env.FRONTEND_DIST_DIR || resolve(import.meta.dirname, '..', 'dist'))
 const html = await readFile(resolve(root, 'index.html'), 'utf8')
 if (/https?:\/\//.test(html)) throw new Error('构建入口包含外部资源地址')
 const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)].map(match => match[1])

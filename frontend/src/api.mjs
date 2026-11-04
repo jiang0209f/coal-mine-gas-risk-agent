@@ -1,5 +1,5 @@
 export function createApiClient({ getToken = () => '', onUnauthorized = () => {}, fetchImpl = fetch } = {}) {
-  return async (path, { method = 'GET', body, signal } = {}) => {
+  return async (path, { method = 'GET', body, signal, responseType } = {}) => {
     const headers = new Headers({ Accept: 'application/json' })
     const token = getToken()
     if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -14,6 +14,7 @@ export function createApiClient({ getToken = () => '', onUnauthorized = () => {}
       if (error.name === 'AbortError') throw error
       throw new Error('后端连接失败，请检查本地服务是否启动。')
     }
+    if (response.ok && responseType === 'blob') return response.blob()
     const raw = await response.text()
     let data
     try { data = raw ? JSON.parse(raw) : null } catch { data = null }

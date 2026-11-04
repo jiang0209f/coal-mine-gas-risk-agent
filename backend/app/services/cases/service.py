@@ -1,5 +1,6 @@
 """人工确认、建议审核、执行反馈与复核快照。"""
 
+from copy import deepcopy
 from datetime import datetime
 from uuid import uuid4
 
@@ -23,10 +24,19 @@ class CasesService:
         event = self._event(context, event_id)
         self.auth.authorize(context.actor, "read", event["face_id"])
         advice = self.knowledge.list_advice(context.actor, event_id)
+        validity = {f"{entry['advice_id']}:{entry['version']}": {
+            "event_revision": entry.get("event_revision"),
+            "current_event_revision": event["event_revision"],
+            "stale": not self._advice_is_current(context, event, entry),
+        } for entry in advice}
+        current_advice = [entry for entry in advice
+                          if not validity[f"{entry['advice_id']}:{entry['version']}"]["stale"]]
         with self.store.transaction() as connection:
             case = self._find_case(context.session_id, event_id, connection)
             actions = [self.store.get("case_action", ref, connection)
                        for ref in case["action_refs"]] if case else []
+            snapshot = (self.store.get("reviewed_case_snapshot", case["case_id"], connection)
+                        if case and case["phase"] == "reviewed" else None)
         if case is None:
             case = {"case_id": None, "event_id": event_id, "phase": "new",
                     "operation_context": None, "action_refs": [], "advice_review_status": {}}
@@ -35,15 +45,22 @@ class CasesService:
             "advice_reviewed": ["record_execution"], "executed": ["submit_feedback"],
             "feedback_submitted": ["review_case"], "reviewed": [],
         }[case["phase"]]
-        if case["phase"] == "confirmed" and not advice:
+        if case["phase"] == "confirmed" and not current_advice:
             pending = ["draft_advice"]
         if case["phase"] == "advice_reviewed":
             decisions = case["advice_review_status"]
-            approved = any(status["decision"] == "approved" for status in decisions.values())
-            unreviewed = any(f"{entry['advice_id']}:{entry['version']}" not in decisions for entry in advice)
-            pending = (["review_advice"] if unreviewed else []) + (["record_execution"] if approved else ["draft_advice"])
+            approved = any(decisions.get(f"{entry['advice_id']}:{entry['version']}", {}).get("decision") == "approved"
+                           for entry in current_advice)
+            unreviewed = any(f"{entry['advice_id']}:{entry['version']}" not in decisions for entry in current_advice)
+            pending = ["review_advice"] if unreviewed else []
+            if approved:
+                pending.append("record_execution")
+            elif not unreviewed:
+                pending.append("draft_advice")
         return {"case": case, "actions": actions, "advice_versions": advice,
-                "advice_review_status": case["advice_review_status"], "pending_items": pending}
+                "advice_review_status": case["advice_review_status"], "pending_items": pending,
+                "current_event_revision": event["event_revision"], "advice_validity": validity,
+                "reviewed_snapshot": snapshot}
 
     def record_action(
         self, actor: Actor, context: ExecutionContext, event_id: str, action: dict,
@@ -69,7 +86,7 @@ class CasesService:
                     raise self._flow_error("请先人工确认事件")
                 case = {
                     "case_id": str(uuid4()), "event_id": event_id,
-                    "session_id": context.session_id, "face_id": event["face_id"],
+                    "session_id": context.session_id, "source_id": context.source_id, "face_id": event["face_id"],
                     "phase": "new", "operation_context": operation_context,
                     "action_refs": [], "advice_review_status": {},
                 }
@@ -85,7 +102,7 @@ class CasesService:
             elif action_type in ("review_advice", "record_execution"):
                 if case["phase"] not in ("confirmed", "advice_reviewed"):
                     raise self._flow_error("当前阶段不能审核或执行建议")
-                advice = self._advice(actor, context, event_id, action, connection)
+                advice = self._advice(actor, context, event, action, connection)
                 if operation_context == "field_record" and advice["operation_context"] == "rehearsal":
                     raise DomainError("现场处置不能采用演练建议", code="forbidden", status_code=403)
                 advice_key = f"{advice['advice_id']}:{advice['version']}"
@@ -114,6 +131,8 @@ class CasesService:
             action_id = str(uuid4())
             record = {
                 "action_id": action_id, "case_id": case["case_id"], "event_id": event_id,
+                "session_id": context.session_id, "source_id": context.source_id,
+                "event_revision": event["event_revision"], "event_snapshot": deepcopy(event),
                 "action_type": action_type, "actor_id": actor.user_id,
                 "role": "safety_management" if action_type == "review_advice" else actor.roles[0],
                 "occurred_at": utcstr(self.clock()), "data_as_of": utcstr(context.as_of),
@@ -132,6 +151,8 @@ class CasesService:
         return {"case": case, "case_action": record}
 
     def export_reviewed_case(self, actor: Actor, case_id: str) -> dict:
+        if not isinstance(case_id, str) or not case_id.strip():
+            raise DomainError("处置单编号无效")
         case = self.store.get("case", case_id)
         if case is None:
             raise DomainError("处置单不存在", code="not_found", status_code=404)
@@ -175,7 +196,18 @@ class CasesService:
         return next((case for case in self.store.list("case", connection)
                      if case["session_id"] == session_id and case["event_id"] == event_id), None)
 
-    def _advice(self, actor, context, event_id, action, connection) -> dict:
+    def _advice_is_current(self, context, event, advice) -> bool:
+        try:
+            cutoff = datetime.fromisoformat(advice["data_as_of"])
+            utcstr(cutoff)
+            if advice.get("event_revision") != event["event_revision"] or cutoff > context.as_of:
+                return False
+            self.knowledge.validate_advice_references(context, advice)
+            return True
+        except (KeyError, ValueError, TypeError, DomainError):
+            return False
+
+    def _advice(self, actor, context, event, action, connection) -> dict:
         advice_id, version = action.get("advice_id"), action.get("advice_version")
         if not advice_id or type(version) is not int or version < 1:
             raise DomainError("建议操作需要advice_id和advice_version")
@@ -183,8 +215,10 @@ class CasesService:
         if advice is None:
             raise DomainError("建议版本不存在", code="not_found", status_code=404)
         actor.require_face(advice["face_id"])
-        if advice["event_id"] != event_id or advice["session_id"] != context.session_id:
+        if advice["event_id"] != event["event_id"] or advice["session_id"] != context.session_id:
             raise DomainError("建议不属于当前事件", code="forbidden", status_code=403)
+        if not self._advice_is_current(context, event, advice):
+            raise self._flow_error("建议与当前事件或有效资料不一致，请重新生成并审核")
         return advice
 
     def _freeze_snapshot(self, case, review, connection) -> None:
@@ -195,6 +229,9 @@ class CasesService:
         snapshot = {
             "snapshot_ref": str(uuid4()), "case_id": case["case_id"],
             "event_id": case["event_id"], "face_id": case["face_id"],
+            "session_id": case["session_id"], "source_id": review["source_id"],
+            "event_revision": review["event_revision"], "event_snapshot": deepcopy(review["event_snapshot"]),
+            "data_as_of": review["data_as_of"],
             "review_action_ref": review["action_id"], "operation_context": case["operation_context"],
             "advice_refs": advice_refs,
             "feedback_refs": [action["action_id"] for action in actions if action["action_type"] == "submit_feedback"],

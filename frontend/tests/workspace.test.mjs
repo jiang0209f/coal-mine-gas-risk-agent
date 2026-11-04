@@ -2,8 +2,64 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { briefMatches, briefScopeKey, briefCitations, briefTextParts, localCitationDetail, shouldPollBrief } from '../src/briefs.mjs'
 import { createApiClient } from '../src/api.mjs'
+import { adviceIsStale, canCaseAction, referenceLocation, referenceValidity } from '../src/knowledge.mjs'
 import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, seriesToPoints } from '../src/utils.mjs'
 import { chooseModelKey, contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, latestVisibleReading, modelKey, replayStart } from '../src/workspace.mjs'
+
+test('reference locations preserve page paragraph and line anchors', () => {
+  assert.equal(referenceLocation({ page: 3, paragraph: 2 }), '第3页 · 第2段')
+  assert.equal(referenceLocation({ paragraph: 7, line: 12 }), '第7段 · 第12行')
+  assert.equal(referenceLocation({ section: '通风管理' }), '通风管理')
+  assert.equal(referenceLocation({ table: 2, row: 3 }), '表2 · 第3行')
+  assert.equal(referenceLocation({ page: 4, chunk: 2, start_offset: 1100, end_offset: 2300 }), '第4页 · 片段2 · 字符1101—2300')
+  assert.equal(referenceLocation({ part: 2, char_start: 0, char_end: 100 }), '片段2 · 字符1—100')
+})
+
+test('reference badges distinguish approval from current effective dates', () => {
+  const now = Date.parse('2026-11-04T00:00:00Z')
+  assert.equal(referenceValidity({ state: 'approved', applicability: {} }, now), 'current')
+  assert.equal(referenceValidity({ state: 'approved', applicability: { valid_to: '2026-11-04T00:00:00Z' } }, now), 'expired')
+  assert.equal(referenceValidity({ state: 'pending_review', applicability: { valid_from: '2026-11-05T00:00:00Z' } }, now), 'not_effective')
+  assert.equal(referenceValidity({ state: 'approved', applicability: { valid_from: '2026-11-04T00:00:00Z' } }, now), 'current')
+})
+
+test('case execution requires approved current advice and filled action content', () => {
+  const advice = { advice_id: 'a', version: 2, event_revision: 2 }
+  const packet = { case: { phase: 'advice_reviewed' }, current_event_revision: 2,
+    advice_review_status: { 'a:2': { decision: 'approved' } }, advice_validity: { 'a:2': { stale: false } } }
+  const input = { packet, advice, roles: ['ventilation'], content: '已执行核实', busy: false }
+  assert.equal(canCaseAction('record_execution', input), true)
+  assert.equal(canCaseAction('record_execution', { ...input, content: '' }), false)
+  assert.equal(canCaseAction('record_execution', { ...input, busy: true }), false)
+  packet.advice_validity['a:2'].stale = true
+  assert.equal(adviceIsStale(packet, advice), true)
+  assert.equal(canCaseAction('record_execution', input), false)
+  assert.equal(canCaseAction('review_advice', { ...input, roles: ['safety_management'] }), false)
+})
+
+test('case review respects role stage and previous decision', () => {
+  const advice = { advice_id: 'a', version: 1, event_revision: 1 }
+  const packet = { case: { phase: 'confirmed' }, current_event_revision: 1, advice_review_status: {} }
+  const input = { packet, advice, roles: ['ventilation'], content: '' }
+  assert.equal(canCaseAction('review_advice', input), false)
+  assert.equal(canCaseAction('review_advice', { ...input, roles: ['safety_management'] }), true)
+  packet.advice_review_status['a:1'] = { decision: 'rejected' }
+  assert.equal(canCaseAction('review_advice', { ...input, roles: ['safety_management'] }), false)
+  assert.equal(adviceIsStale({ current_event_revision: 2 }, advice), true)
+  assert.equal(canCaseAction('review_case', { packet: { case: { phase: 'feedback_submitted' } }, roles: ['gas_governance'], content: '复核完成' }), true)
+})
+
+test('original reference downloads retain bearer auth and blob contents', async () => {
+  let requested
+  const api = createApiClient({ getToken: () => 'download-only-token', fetchImpl: async (url, options) => {
+    requested = { url, options }
+    return new Response('合成资料原文', { headers: { 'Content-Type': 'text/plain' } })
+  } })
+  const result = await api('/references/files/f/content', { responseType: 'blob' })
+  assert.equal(requested.url, '/api/references/files/f/content')
+  assert.equal(requested.options.headers.get('Authorization'), 'Bearer download-only-token')
+  assert.equal(await result.text(), '合成资料原文')
+})
 
 test('API uses bearer authentication and returns the direct list', async () => {
   const calls = []

@@ -2,14 +2,14 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
-import { readFile, mkdir } from 'node:fs/promises'
+import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { resolve, extname } from 'node:path'
 import test from 'node:test'
 import { chromium } from 'playwright'
 import { mineTime } from '../src/utils.mjs'
 
-const root = resolve(import.meta.dirname, '..', 'dist')
+const root = resolve(process.env.FRONTEND_DIST_DIR || resolve(import.meta.dirname, '..', 'dist'))
 const artifactDir = resolve(process.env.UI_TEST_ARTIFACT_DIR || resolve(import.meta.dirname, 'artifacts'))
 const browserPath = process.env.UI_TEST_BROWSER || [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
@@ -25,11 +25,11 @@ const modelCatalog = [
   { model_id: 'QA离线基线', version: 'test', model_type: 'baseline', default_eligible: true, point_ids: [point.point_id], input_window: 2, horizon_seconds: 3600, aggregation_seconds: 300 },
   { model_id: 'QA专业预测', version: 'trained-test-v1', model_type: 'professional', deployment_stage: 'experimental', default_eligible: false, point_ids: [point.point_id], input_window: 90, horizon_seconds: 3600, aggregation_seconds: 300 },
 ]
-const reference = { reference_id: 'qa-approved-reference', kind: 'document', source: 'UI验收资料', locator: { page: 1 }, text: '测试条文：核对监测记录。', operation_context: 'field_record' }
-let role, session, actions, advice, calls, pendingChat, taskState, attributionState, forecastRuns, savedSessions, nextEvidenceGate
+const reference = { reference_id: 'qa-approved-reference', entry_id: 'qa-document', version: '1', kind: 'document', source: 'UI验收资料', locator: { page: 1 }, text: '测试条文：核对监测记录。', operation_context: 'field_record', knowledge_as_of: '2026-11-04T12:00:00Z' }
+let role, session, actions, advice, calls, pendingChat, taskState, attributionState, forecastRuns, savedSessions, nextEvidenceGate, documents, nextDocumentGate
 let briefStatus, briefAttempt, briefAsOf, briefRevision, selectedEventRevision, generateOnTick, eventPresent, nextBriefGate
 function reset(value) {
-  role = value; session = null; actions = []; advice = []; calls = []; pendingChat = false; taskState = 'running'; attributionState = 'completed'; forecastRuns = []; savedSessions = new Map(); nextEvidenceGate = null
+  role = value; session = null; actions = []; advice = []; calls = []; documents = []; nextDocumentGate = null; pendingChat = false; taskState = 'running'; attributionState = 'completed'; forecastRuns = []; savedSessions = new Map(); nextEvidenceGate = null
   briefStatus = 'not_started'; briefAttempt = 0; briefAsOf = null; briefRevision = 1; selectedEventRevision = 1; generateOnTick = false; eventPresent = true; nextBriefGate = null
 }
 function forecast(modelId = modelCatalog[0].model_id, version = modelCatalog[0].version) {
@@ -99,13 +99,18 @@ function casePacket() {
   const phase = { confirm_event: 'confirmed', review_advice: 'advice_reviewed', record_execution: 'executed', submit_feedback: 'feedback_submitted', review_case: 'reviewed' }[last?.action_type] || 'new'
   const review = actions.findLast(item => item.action_type === 'review_advice')
   return { case: { case_id: last ? 'qa-case' : null, phase, operation_context: 'rehearsal' }, actions, advice_versions: advice,
-    advice_review_status: review ? { 'qa-advice:1': { decision: review.review_decision } } : {}, pending_items: [] }
+    advice_review_status: review ? { 'qa-advice:1': { decision: review.review_decision } } : {}, pending_items: [],
+    current_event_revision: selectedEventRevision,
+    advice_validity: Object.fromEntries(advice.map(item => [`${item.advice_id}:${item.version}`, { stale: item.event_revision !== selectedEventRevision }])),
+    reviewed_snapshot: phase === 'reviewed' ? { case_id: 'qa-case', event_id: 'qa-event', event_revision: selectedEventRevision, session_id: session.session_id,
+      source_id: source.source_id, face_id: source.face_id, snapshot_ref: 'qa-snapshot', reviewed_at: last.occurred_at,
+      operation_context: 'rehearsal', actions: [...actions], source_refs: [reference.reference_id], advice_refs: [] } : null }
 }
 async function api(path, request) {
   const chunks = []
   for await (const chunk of request) chunks.push(chunk)
   const text = Buffer.concat(chunks).toString()
-  const body = text ? JSON.parse(text) : null
+  const body = request.headers['content-type']?.startsWith('multipart/form-data') ? { multipart: text } : text ? JSON.parse(text) : null
   calls.push({ path: path.pathname, query: Object.fromEntries(path.searchParams), method: request.method, body })
   if (path.pathname === '/api/auth/login') return { access_token: 'qa-isolated-token', token_type: 'bearer', user: { user_id: 'qa-user', username: '界面验收账户', roles: [role], face_ids: [source.face_id] } }
   if (path.pathname === '/api/auth/logout') return {}
@@ -119,7 +124,34 @@ async function api(path, request) {
       points: selectedPoints.map(p => ({ ...p, observation_count: 1200, valid_observation_count: 1199,
         start_at: '2022-02-05T12:00:00+00:00', end_at: '2022-02-05T23:59:00+00:00' })) }
   }
-  if (path.pathname === '/api/references') return []
+  if (path.pathname === '/api/references') return documents
+  if (path.pathname === '/api/references/files' && request.method === 'POST') return { file_id: 'qa-upload', filename: '合成条文.txt', extension: '.txt', sha256: 'a'.repeat(64), size_bytes: 33, face_ids: [source.face_id] }
+  if (path.pathname === '/api/references/files/qa-upload') return { file_id: 'qa-upload', filename: '合成条文.txt', extension: '.txt', sha256: 'a'.repeat(64), size_bytes: 33, face_ids: [source.face_id] }
+  if (path.pathname === '/api/references/imports') {
+    const doc = { ...body.spec, entry_id: 'qa-upload-doc', document_id: 'qa-upload-doc', kind: 'document', state: 'pending_review', fragment_count: 1,
+      fragments: [{ ...reference, reference_id: 'qa-upload-reference', entry_id: 'qa-upload-doc', version: body.spec.version, locator: { paragraph: 1 }, text: '合成资料：核对监测记录并留存依据。' }] }
+    documents.push(doc); return doc
+  }
+  if (path.pathname === '/api/references/qa-upload-doc') {
+    const packet = structuredClone(documents.find(doc => doc.entry_id === 'qa-upload-doc' && String(doc.version) === path.searchParams.get('version')))
+    const gate = nextDocumentGate; nextDocumentGate = null
+    if (gate) await gate
+    return packet
+  }
+  if (path.pathname === '/api/references/qa-upload-doc/review') {
+    const doc = documents.find(doc => doc.entry_id === 'qa-upload-doc' && String(doc.version) === String(body.version))
+    if (body.decision === 'approved') documents.filter(item => item.entry_id === doc.entry_id && item !== doc && item.state === 'approved').forEach(item => { item.state = 'superseded' })
+    Object.assign(doc, { state: body.decision, reviewer_id: 'qa-user', reviewed_at: new Date().toISOString(), review_comment: body.comment }); return doc
+  }
+  if (path.pathname === '/api/experiences') {
+    const item = { ...body.spec, entry_id: 'qa-experience', experience_id: 'qa-experience', kind: 'experience', version: 1, state: 'pending_review', source: '处置单 qa-case', operation_context: 'rehearsal',
+      fragments: [{ reference_id: 'qa-experience-reference', text: body.spec.content, locator: { case_id: 'qa-case' } }] }
+    documents.push(item); return item
+  }
+  if (path.pathname === '/api/references/qa-experience') return documents.find(doc => doc.entry_id === 'qa-experience')
+  if (path.pathname === '/api/experiences/qa-experience/review') {
+    const item = documents.find(doc => doc.entry_id === 'qa-experience'); item.state = body.decision; return item
+  }
   if (path.pathname === '/api/evaluations') return []
   if (path.pathname === '/api/sessions' && request.method === 'POST') {
     session = { ...body, session_id: `qa-session-${savedSessions.size + 1}`, face_id: source.face_id, as_of: body.start_as_of, state: 'paused', speed: 1 }
@@ -185,7 +217,7 @@ async function api(path, request) {
   if (path.pathname === '/api/references/qa-document') return { entry_id: 'qa-document', document_id: 'qa-document', version: '1', title: '界面验收规程', state: 'approved', source: reference.source,
     fragments: [{ ...reference, entry_id: 'qa-document', version: '1' }] }
   if (path.pathname === '/api/advice') {
-    advice.push({ advice_id: 'qa-advice', version: 1, reference_ids: body.reference_ids, items: [reference] })
+    advice.push({ advice_id: 'qa-advice', version: 1, event_revision: selectedEventRevision, knowledge_as_of: reference.knowledge_as_of, data_as_of: session.as_of, reference_ids: body.reference_ids, items: [reference] })
     return advice.at(-1)
   }
   if (path.pathname === '/api/chat') return { task_id: 'qa-task', state: pendingChat ? 'running' : 'completed', final_text: pendingChat ? '' : 'UI验收：工具任务已完成，数据截止当前会话时点。', brief_method: 'structured_template' }
@@ -200,6 +232,11 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
     const path = new URL(request.url, 'http://127.0.0.1')
     try {
       if (path.pathname.startsWith('/api/')) {
+        if (path.pathname === '/api/references/files/qa-upload/content') {
+          calls.push({ path: path.pathname, method: request.method, authorization: request.headers.authorization })
+          response.setHeader('Content-Type', 'text/plain; charset=utf-8')
+          response.end('合成资料：核对监测记录并留存依据。'); return
+        }
         response.setHeader('Content-Type', 'application/json; charset=utf-8')
         response.end(JSON.stringify(await api(path, request)))
       } else {
@@ -214,13 +251,19 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
   const url = `http://127.0.0.1:${server.address().port}`
   const browser = await chromium.launch({ executablePath: browserPath, headless: true })
+  const externalRequests = []
+  async function monitoredPage(context) {
+    const page = await context.newPage()
+    page.on('request', request => { if (/^https?:/.test(request.url()) && new URL(request.url()).origin !== url) externalRequests.push(request.url()) })
+    return page
+  }
   try {
     for (const userRole of ['ventilation', 'gas_governance', 'safety_management']) {
       await t.test(`${userRole}: login, scoped data, chart and operation permissions`, async () => {
         reset(userRole)
         const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } })
         try {
-        const page = await context.newPage()
+        const page = await monitoredPage(context)
         page.setDefaultTimeout(6000)
         const failures = []; page.on('pageerror', error => failures.push(error.message))
         await page.clock.install()
@@ -319,6 +362,26 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
           }
           assert.equal(casePacket().case.phase, 'reviewed')
           assert.ok(actions.every(item => item.operation_context === 'rehearsal'))
+          await page.getByRole('region', { name: '复核归档', exact: true }).getByText('已冻结归档', { exact: true }).waitFor()
+          await page.getByRole('textbox', { name: '经验内容', exact: true }).fill('合成演练经验：保留监测依据及复核记录。')
+          await page.getByRole('button', { name: '前进 60 秒 →', exact: true }).click()
+          await page.waitForFunction(() => !document.querySelector('.loading-note'))
+          assert.equal(await page.getByRole('textbox', { name: '经验内容', exact: true }).inputValue(), '合成演练经验：保留监测依据及复核记录。', '同一处置普通刷新保留未提交经验')
+          await page.getByRole('button', { name: '提交经验审核', exact: true }).click()
+          await page.getByRole('status').filter({ hasText: '经验已提交，审核后可检索。' }).waitFor()
+          assert.equal(calls.findLast(call => call.path === '/api/experiences').body.case_id, 'qa-case')
+          for (const width of [1440, 390]) {
+            await page.setViewportSize({ width, height: 1050 })
+            assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `闭环页面${width}px无整页溢出`)
+            await mkdir(artifactDir, { recursive: true })
+            await page.screenshot({ path: resolve(artifactDir, `case-archive-${width}.png`), fullPage: true })
+          }
+          await page.setViewportSize({ width: 1440, height: 1050 })
+          await page.getByRole('button', { name: /资料与依据/ }).click()
+          await page.getByRole('article').filter({ has: page.getByText('处置经验', { exact: true }) }).getByRole('button', { name: '查看原文', exact: true }).click()
+          await page.getByRole('button', { name: '批准经验', exact: true }).click()
+          await page.getByRole('region', { name: '资料原文', exact: true }).getByText('已批准', { exact: true }).first().waitFor()
+          assert.equal(documents.find(item => item.entry_id === 'qa-experience').state, 'approved')
           await page.getByRole('textbox', { name: '向风险管控助手提问' }).fill('UI验收问题')
           await page.getByRole('button', { name: '发送 ↑', exact: true }).click()
           await page.getByText('UI验收：工具任务已完成，数据截止当前会话时点。', { exact: true }).waitFor()
@@ -357,12 +420,103 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
         } finally { await context.close() }
       })
     }
+    await t.test('local knowledge upload, review and original fragments stay traceable', async () => {
+      reset('safety_management')
+      const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } })
+      let releaseDocument = () => {}
+      try {
+        const page = await monitoredPage(context); page.setDefaultTimeout(6000)
+        const errors = []; page.on('pageerror', error => errors.push(error.message))
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user')
+        await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.getByRole('heading', { name: 'TEST-UI 工作面', exact: true }).waitFor()
+        await page.getByRole('button', { name: /资料与依据/ }).click()
+        await page.getByLabel('资料文件', { exact: true }).setInputFiles({ name: '合成条文.txt', mimeType: 'text/plain', buffer: Buffer.from('合成资料：核对监测记录并留存依据。') })
+        await page.getByRole('textbox', { name: '资料名称', exact: true }).fill('合成资料上传验收')
+        await page.getByRole('textbox', { name: '资料来源', exact: true }).fill('隔离合成资料')
+        await page.getByLabel('生效时间', { exact: true }).fill('2026-01-01T00:00')
+        await page.getByLabel('失效时间', { exact: true }).fill('2027-01-01T00:00')
+        await page.getByRole('button', { name: '上传并送审', exact: true }).click()
+        const row = page.getByRole('article').filter({ has: page.getByText('合成资料上传验收', { exact: true }) })
+        await row.getByText('待审核', { exact: true }).waitFor()
+        assert.ok(calls.find(call => call.path === '/api/references/files').body.multipart.includes('合成条文.txt'))
+        assert.equal(calls.find(call => call.path === '/api/references/imports').body.spec.file_id, 'qa-upload')
+        assert.equal(calls.find(call => call.path === '/api/references/imports').body.spec.applicability.valid_from, '2025-12-31T16:00:00.000Z')
+        assert.equal(calls.find(call => call.path === '/api/references/imports').body.spec.applicability.valid_to, '2026-12-31T16:00:00.000Z')
+        await row.getByRole('button', { name: '查看原文', exact: true }).click()
+        const detail = page.getByRole('region', { name: '资料原文', exact: true })
+        await detail.getByText('合成资料：核对监测记录并留存依据。', { exact: true }).waitFor()
+        await detail.getByText('第1段', { exact: true }).waitFor()
+        assert.equal(calls.findLast(call => call.path === '/api/references/qa-upload-doc').query.version, '1')
+        await detail.getByRole('textbox', { name: '审核说明', exact: true }).fill('合成上传内容与原件一致。')
+        await detail.getByRole('button', { name: '批准资料', exact: true }).click()
+        await detail.getByText('已批准', { exact: true }).first().waitFor()
+        await detail.getByText('合成上传内容与原件一致。', { exact: true }).waitFor()
+        const [download] = await Promise.all([page.waitForEvent('download'), detail.getByRole('button', { name: '下载原件', exact: true }).click()])
+        await mkdir(artifactDir, { recursive: true })
+        const downloadPath = resolve(artifactDir, 'knowledge-original-download.txt')
+        await download.saveAs(downloadPath)
+        assert.equal(await readFile(downloadPath, 'utf8'), '合成资料：核对监测记录并留存依据。')
+        assert.equal(calls.findLast(call => call.path.endsWith('/content')).authorization, 'Bearer qa-isolated-token')
+        for (const width of [1920, 1440, 1280, 390]) {
+          await page.setViewportSize({ width, height: 1050 })
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `知识页面${width}px无整页溢出`)
+          await mkdir(artifactDir, { recursive: true })
+          await page.screenshot({ path: resolve(artifactDir, `knowledge-local-${width}.png`), fullPage: true })
+        }
+        await page.setViewportSize({ width: 1440, height: 1050 })
+        await row.getByRole('button', { name: '更新此资料', exact: true }).click()
+        await page.getByRole('textbox', { name: '资料版本', exact: true }).fill('2')
+        await page.getByLabel('资料文件', { exact: true }).setInputFiles({ name: '合成条文-v2.txt', mimeType: 'text/plain', buffer: Buffer.from('合成资料第二版。') })
+        await page.getByRole('button', { name: '上传并送审', exact: true }).click()
+        await detail.getByRole('button', { name: '批准资料', exact: true }).waitFor()
+        assert.equal(calls.findLast(call => call.path === '/api/references/imports').body.spec.entry_id, 'qa-upload-doc')
+        await detail.getByRole('button', { name: '批准资料', exact: true }).click()
+        await page.locator('.document-row .tag').filter({ hasText: '已替代' }).first().waitFor()
+        await page.getByRole('article').filter({ has: page.getByText(/隔离合成资料 · 版本 1/) }).getByRole('button', { name: '查看原文', exact: true }).click()
+        await detail.getByText('已替代', { exact: true }).first().waitFor()
+        assert.equal(calls.findLast(call => call.path === '/api/references/qa-upload-doc').query.version, '1', '旧版本仍可精确追溯')
+        await detail.getByRole('button', { name: '关闭原文', exact: true }).click()
+        nextDocumentGate = new Promise(resolveGate => { releaseDocument = resolveGate })
+        await Promise.all([page.waitForRequest(request => request.url().includes('/references/qa-upload-doc?')), row.first().getByRole('button', { name: '查看原文', exact: true }).click()])
+        await Promise.all([page.waitForResponse(response => response.url().includes(`/points?source_id=${otherSource.source_id}`)), page.locator('.context-selects select').first().selectOption(otherSource.source_id)])
+        releaseDocument()
+        assert.equal(await detail.count(), 0, '同工作面的来源切换后迟到原文不覆盖当前页面')
+        assert.deepEqual(errors, [])
+      } finally { releaseDocument(); await context.close() }
+    })
+
+    await t.test('event revisions prevent executing stale approved advice', async () => {
+      reset('safety_management'); selectedEventRevision = 2
+      advice = [{ advice_id: 'qa-advice', version: 1, event_revision: 1, items: [reference], reference_ids: [reference.reference_id] }]
+      actions = [{ action_id: 'qa-confirmed', action_type: 'confirm_event', content: '合成确认', occurred_at: '2022-02-05T13:12:00Z', data_as_of: '2022-02-05T13:12:00Z' },
+        { action_id: 'qa-approved', action_type: 'review_advice', review_decision: 'approved', advice_id: 'qa-advice', advice_version: 1, occurred_at: '2022-02-05T13:12:00Z', data_as_of: '2022-02-05T13:12:00Z' }]
+      const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } })
+      try {
+        const page = await monitoredPage(context); page.setDefaultTimeout(6000)
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user'); await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.getByRole('heading', { name: 'TEST-UI 工作面', exact: true }).waitFor()
+        await page.getByRole('button', { name: '创建会话', exact: true }).click()
+        await page.getByRole('button', { name: /实测超限/ }).click()
+        await page.getByRole('button', { name: '打开人工处置', exact: true }).click()
+        await page.getByText('建议依据已更新或失效，请重新生成并审核。', { exact: true }).waitFor()
+        await page.getByPlaceholder('填写人工核实、执行、反馈或复核记录').fill('合成执行说明')
+        assert.equal(await page.getByRole('button', { name: '记录执行', exact: true }).isDisabled(), true)
+        assert.equal(await page.getByRole('button', { name: '批准建议', exact: true }).isDisabled(), true)
+        assert.equal(calls.some(call => call.path.endsWith('/actions') && call.body.action_type === 'record_execution'), false)
+      } finally { await context.close() }
+    })
+
     await t.test('forecast restore, non-methane point and stale evidence stay scoped', async () => {
       reset('safety_management')
       const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
       let releaseEvidence = () => {}
       try {
-        const page = await context.newPage()
+        const page = await monitoredPage(context)
         page.setDefaultTimeout(6000)
         await page.goto(url)
         await page.locator('[name="username"]').fill('qa-only-user')
@@ -408,7 +562,7 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
       let releaseBrief = () => {}
       let releaseUiEvidence = () => {}
       try {
-        const page = await context.newPage()
+        const page = await monitoredPage(context)
         page.setDefaultTimeout(6000)
         await page.clock.install()
         const errors = []; page.on('pageerror', error => errors.push(error.message))
@@ -479,5 +633,10 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
         assert.deepEqual(errors, [])
       } finally { releaseBrief(); releaseUiEvidence(); await context.close() }
     })
-  } finally { await browser.close(); await new Promise(resolveClose => server.close(resolveClose)) }
+    assert.deepEqual(externalRequests, [], '浏览器仅访问本机隔离服务')
+  } finally {
+    await mkdir(artifactDir, { recursive: true })
+    await writeFile(resolve(artifactDir, 'browser-network.json'), JSON.stringify({ origin: url, external_requests: externalRequests, model_requests: 0 }, null, 2))
+    await browser.close(); await new Promise(resolveClose => server.close(resolveClose))
+  }
 })

@@ -1,12 +1,15 @@
 """经认证的业务HTTP接口。"""
 
 from datetime import datetime
+import json
 from pathlib import Path
 import shutil
 from tempfile import NamedTemporaryFile
 from typing import Annotated
+from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Header, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, Header, Query, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from app.schemas.common import DomainError
@@ -362,6 +365,39 @@ def case_action(event_id: str, body: CaseAction, a=Depends(actor), s=Depends(ser
 @router.get("/references")
 def references(state: str | None = None, kind: str | None = None, face_id: str | None = None, a=Depends(actor), s=Depends(services)):
     return s["knowledge"].list_references(a, state, kind, face_id)
+
+
+@router.post("/references/files")
+async def upload_reference_file(file: UploadFile = File(), face_ids: str | None = Form(default=None),
+                                a=Depends(actor), s=Depends(services)):
+    s["knowledge"].auth.authorize(a, "manage_data")
+    faces = None
+    if face_ids is not None:
+        try:
+            faces = json.loads(face_ids)
+        except (ValueError, TypeError):
+            raise DomainError("工作面范围需要JSON列表") from None
+        if not isinstance(faces, list) or not faces or any(not isinstance(face, str) or not face.strip() for face in faces):
+            raise DomainError("工作面范围需要非空字符串列表")
+    try:
+        content = await file.read(20 * 1024 * 1024 + 1)
+        return s["knowledge"].upload_file(a, file.filename or "", content, faces)
+    finally:
+        await file.close()
+
+
+@router.get("/references/files/{file_id}")
+def reference_file(file_id: str, a=Depends(actor), s=Depends(services)):
+    return s["knowledge"].get_file(a, file_id)
+
+
+@router.get("/references/files/{file_id}/content")
+def reference_file_content(file_id: str, a=Depends(actor), s=Depends(services)):
+    metadata, content = s["knowledge"].get_file_content(a, file_id)
+    return Response(content, media_type=metadata["media_type"], headers={
+        "Content-Disposition": "attachment; filename*=UTF-8''" + quote(metadata["filename"], safe=""),
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
+    })
 
 
 @router.post("/references/imports")

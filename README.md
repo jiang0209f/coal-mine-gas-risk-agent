@@ -12,6 +12,8 @@ FEDformer＋LightGBM 预测和 KMeans/SVC 候选溯源已用31002六通道加工
 
 新增预警或等级升级后提交[主动研判任务](docs/event-briefs.md)，展示工具进度、冻结依据和引用。真实来源保留本机依据；纯合成隔离来源可生成DeepSeek研判简报。`EVENT_BRIEF_ALLOWED_SOURCE_IDS` 为普通对话和主动简报共用的合成来源允许名单，生产保持 `[]`。详见[数据使用规则](docs/event-brief-cloud-fields.md)。
 
+[本地知识库与人工处置闭环](docs/knowledge-cases.md)已贯通原件上传、审核检索、建议引用、执行反馈、复核归档及经验审核。资料按当前有效、最新审核版本使用，建议分别记录监测`data_as_of`和资料`knowledge_as_of`。10份知识库材料原件、定位文本和标注模板保存在F盘，正式引用按业务审核结果确定。
+
 ## 安装与启动
 
 Python 3.11+、Node.js 22+：

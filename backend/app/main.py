@@ -41,7 +41,7 @@ def build_services(configuration):
     s["model_packages"] = ModelPackagesService(store, model_runtime)
     s["alerts"] = AlertsService(store, s["data"])
     s["traceability"] = TraceabilityService(store, s["alerts"], s["data"], s["prediction"], trained_models)
-    s["knowledge"] = KnowledgeService(store)
+    s["knowledge"] = KnowledgeService(store, upload_dir=runtime / "knowledge-files")
     s["cases"] = CasesService(store, s["alerts"], s["knowledge"])
     s["evaluation"] = EvaluationService(store)
     s["agent"] = AgentService(store, s, configuration)

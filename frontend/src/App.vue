@@ -5,6 +5,8 @@ import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, queryString 
 import { chooseModelKey, contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, latestVisibleReading, modelKey, replayStart } from './workspace.mjs'
 import { briefCitations, briefMatches, briefScopeKey, localCitationDetail, shouldPollBrief } from './briefs.mjs'
 import MonitorWorkspace from './components/MonitorWorkspace.vue'
+import KnowledgeWorkspace from './components/KnowledgeWorkspace.vue'
+import { adviceIsStale, canCaseAction, referenceLocation } from './knowledge.mjs'
 
 const token = ref(''), user = ref(null), username = ref(''), password = ref('')
 const busy = ref(''), error = ref(''), notice = ref(''), tab = ref('monitor')
@@ -19,7 +21,8 @@ const caseContent = ref(''), refs = ref([]), referenceQuery = ref(''), searchRes
 const uploadFile = ref(null), importResult = ref(null), importStart = ref(''), importEnd = ref('')
 const importLineage = ref('unknown')
 const mappingText = ref('')
-const documentForm = ref({ title: '', source: '', version: '1', text: '', page: 1 })
+const caseReference = ref(null), caseReferenceLoading = ref(false), experienceContent = ref('')
+const caseReferenceRequests = createRequestGuard(), referenceSearchRequests = createRequestGuard(), referenceListRequests = createRequestGuard()
 const chatInput = ref(''), messages = ref([]), chatBusy = ref(false), chatTask = ref(null)
 let pollVersion = 0, playbackTimer, busySequence = 0, briefPollTimer, briefPollCount = 0
 const sourceRequests = createRequestGuard(), workspaceRequests = createRequestGuard(), eventRequests = createRequestGuard(), forecastRequests = createRequestGuard()
@@ -49,7 +52,8 @@ const phase = computed(() => caseResult.value?.case?.phase || 'new')
 const attribution = computed(() => evidence.value?.candidate_attribution)
 const adviceOptions = computed(() => caseResult.value?.advice_versions || [])
 const chosenAdvice = computed(() => adviceOptions.value.find(item => `${item.advice_id}:${item.version}` === selectedAdvice.value))
-const selectedReview = computed(() => caseResult.value?.advice_review_status?.[selectedAdvice.value]?.decision)
+const chosenAdviceStale = computed(() => adviceIsStale(caseResult.value, chosenAdvice.value))
+const caseAction = (action, checkBusy = true) => canCaseAction(action, { packet: caseResult.value, advice: chosenAdvice.value, roles: user.value?.roles, content: caseContent.value, busy: checkBusy && Boolean(busy.value) })
 const operationContext = computed(() => active.value?.mode === 'realtime' ? 'field_record' : 'rehearsal')
 const api = createApiClient({ getToken: () => token.value, onUnauthorized: clearLogin })
 const post = (path, body) => api(path, { method: 'POST', body })
@@ -61,7 +65,7 @@ function clearLogin() {
   sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate()
   pollVersion++
   token.value = ''; user.value = null; active.value = null; chatBusy.value = false
-  sources.value = []; sessions.value = []; points.value = []; messages.value = []; clearMonitor()
+  sources.value = []; sessions.value = []; points.value = []; messages.value = []; refs.value = []; referenceListRequests.invalidate(); clearMonitor()
 }
 async function run(label, callback) {
   const sequence = ++busySequence
@@ -73,7 +77,7 @@ function clearEvent() {
   clearBrief()
   eventRequests.invalidate(); eventLoading.value = false
   selectedEvent.value = null; evidence.value = null; caseResult.value = null; selectedAdvice.value = ''
-  selectedRefs.value = []; searchResults.value = []; caseContent.value = ''
+  selectedRefs.value = []; searchResults.value = []; caseContent.value = ''; closeCaseReference(); experienceContent.value = ''; referenceSearchRequests.invalidate()
 }
 function clearMonitor() {
   workspaceRequests.invalidate(); forecastRequests.invalidate()
@@ -262,6 +266,8 @@ async function tick(seconds = null) {
 async function loadEvent(event, focusBrief = false) {
   if (!event || !active.value || event.point_id !== pointId.value) return
   clearBrief()
+  closeCaseReference(); referenceSearchRequests.invalidate()
+  if (selectedEvent.value?.event_id !== event.event_id) experienceContent.value = ''
   const request = eventRequests.begin(), session = active.value, selectedPoint = pointId.value, scope = contextKey(session, selectedPoint)
   const currentForecast = forecast.value, chosenModel = selectedModel.value
   if (selectedEvent.value?.event_id !== event.event_id || selectedEvent.value?.event_revision !== event.event_revision) caseContent.value = ''
@@ -382,9 +388,9 @@ async function openBriefCitation(requested) {
 }
 async function searchReferences() {
   await run('检索已批准资料', async () => {
-    const scope = contextKey(active.value, pointId.value), eventId = selectedEvent.value?.event_id
+    const scope = contextKey(active.value, pointId.value), eventId = selectedEvent.value?.event_id, request = referenceSearchRequests.begin()
     const result = await post('/references/search', { session_id: active.value.session_id, query: referenceQuery.value, event_id: eventId })
-    if (contextKey(active.value, pointId.value) !== scope || selectedEvent.value?.event_id !== eventId) return
+    if (!referenceSearchRequests.isCurrent(request) || contextKey(active.value, pointId.value) !== scope || selectedEvent.value?.event_id !== eventId) return
     searchResults.value = list(result)
     selectedRefs.value = []
   })
@@ -399,6 +405,7 @@ async function draftAdvice() {
 }
 async function recordAction(actionType, decision) {
   await run('提交人工记录', async () => {
+    if (!caseAction(actionType, false)) throw new Error('当前阶段或建议版本不支持该操作。')
     const scope = contextKey(active.value, pointId.value), eventId = selectedEvent.value.event_id
     await post(`/cases/${eventId}/actions`, {
       session_id: active.value.session_id, action_type: actionType, operation_context: operationContext.value,
@@ -407,6 +414,31 @@ async function recordAction(actionType, decision) {
     })
     if (contextKey(active.value, pointId.value) !== scope || selectedEvent.value?.event_id !== eventId) return
     caseContent.value = ''; await loadEvent(selectedEvent.value); notice.value = '操作已保存，可在处置记录中回查。'
+  })
+}
+function closeCaseReference() {
+  caseReferenceRequests.invalidate(); caseReference.value = null; caseReferenceLoading.value = false
+}
+async function openCaseReference(reference) {
+  const entryId = reference.entry_id || reference.document_id
+  if (!entryId || !active.value || !selectedEvent.value) return
+  const request = caseReferenceRequests.begin(), scope = briefScopeKey(active.value, selectedEvent.value)
+  caseReferenceLoading.value = true; caseReference.value = null
+  try {
+    const document = await api(`/references/${encodeURIComponent(entryId)}?${queryString({ version: reference.version })}`)
+    if (caseReferenceRequests.isCurrent(request) && briefScopeKey(active.value, selectedEvent.value) === scope) {
+      caseReference.value = { ...document, fragments: (document.fragments || []).filter(item => !reference.reference_id || item.reference_id === reference.reference_id) }
+    }
+  } catch (caught) { if (caseReferenceRequests.isCurrent(request)) error.value = caught.message }
+  finally { if (caseReferenceRequests.isCurrent(request)) caseReferenceLoading.value = false }
+}
+async function submitExperience() {
+  await run('提交经验审核', async () => {
+    const session = active.value, event = selectedEvent.value, scope = briefScopeKey(session, event), snapshot = caseResult.value?.reviewed_snapshot
+    if (!snapshot || !experienceContent.value.trim()) throw new Error('请填写已复核处置的经验内容。')
+    await post('/experiences', { case_id: snapshot.case_id, spec: { content: experienceContent.value, applicability: { face_ids: [source.value.face_id] } } })
+    if (briefScopeKey(active.value, selectedEvent.value) !== scope) return
+    experienceContent.value = ''; await loadReferences(); notice.value = '经验已提交，审核后可检索。'
   })
 }
 async function importHistory() {
@@ -424,24 +456,10 @@ async function importHistory() {
     notice.value = '导入完成，计数与质量结果见下方。'; await refreshWorkspace()
   })
 }
-async function loadReferences() { refs.value = list(await api('/references')) }
-async function importDocument() {
-  await run('登记资料', async () => {
-    const form = documentForm.value
-    await post('/references/imports', { spec: {
-      title: form.title, source: form.source, version: form.version,
-      applicability: { face_ids: [source.value?.face_id] },
-      fragments: [{ text: form.text, locator: { page: Number(form.page) } }],
-    } })
-    documentForm.value.text = ''; await loadReferences(); notice.value = '资料已登记，批准后进入检索。'
-  })
-}
-async function reviewDocument(doc, decision) {
-  await run('审核资料', async () => {
-    const base = doc.kind === 'experience' ? `/experiences/${doc.experience_id}` : `/references/${doc.document_id}`
-    await post(`${base}/review`, { version: doc.version, decision, comment: '' })
-    await loadReferences(); notice.value = '审核结论已保存。'
-  })
+async function loadReferences() {
+  const request = referenceListRequests.begin(), requestedToken = token.value
+  const result = await api('/references')
+  if (referenceListRequests.isCurrent(request) && token.value === requestedToken) refs.value = list(result)
 }
 async function sendChat() {
   const message = chatInput.value.trim()
@@ -473,7 +491,7 @@ watch(active, () => {
   clearInterval(playbackTimer)
   if (active.value?.state === 'running') playbackTimer = setInterval(() => tick(), 5000)
 })
-onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate(); clearInterval(playbackTimer); clearBrief() })
+onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate(); caseReferenceRequests.invalidate(); referenceSearchRequests.invalidate(); referenceListRequests.invalidate(); clearInterval(playbackTimer); clearBrief() })
 </script>
 
 <template>
@@ -500,9 +518,7 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
         <section v-if="safety" class="panel"><details><summary>历史数据接入</summary><p class="muted">选择文件并核对字段映射；大表可按起止时间分段导入。</p><div class="form-row"><label>数据性质<select v-model="importLineage"><option value="unknown">来源待核实</option><option value="raw">原始监测记录</option><option value="processed">已处理数据</option></select></label><label>数据文件<input type="file" accept=".csv,.xlsx" @change="uploadFile = $event.target.files[0]"></label></div><div class="form-row"><label>开始时间（可选，UTC+8）<input v-model="importStart" type="datetime-local" step="1"></label><label>结束时间（可选，UTC+8）<input v-model="importEnd" type="datetime-local" step="1"></label></div><details><summary>高级配置：字段映射</summary><textarea v-model="mappingText" rows="10" class="code-input" aria-label="导入字段映射JSON"></textarea></details><button class="primary" :disabled="!!busy || !uploadFile || !sourceId" @click="importHistory">上传并导入</button><pre v-if="importResult" class="result-json">{{ pretty(importResult) }}</pre></details></section>
       </template>
       <template v-if="tab === 'knowledge'">
-        <section class="panel"><div class="section-heading"><div><h2>已批准资料检索</h2><p>按当前工作面筛选，保留原文、来源与页段定位。</p></div></div><form class="search-form" @submit.prevent="searchReferences"><input v-model="referenceQuery" placeholder="输入条款关键词，如通风、甲烷、标校" aria-label="资料检索关键词"><button class="primary" :disabled="!active || !!busy">检索</button></form><p v-if="!active" class="muted">请先创建或选择会话。</p><article v-for="item in searchResults" :key="item.reference_id" class="reference-card"><div><span class="tag teal">{{ item.kind === 'experience' ? '已批准经验' : '已批准条文' }}</span><span class="tag" v-if="item.operation_context === 'rehearsal'">演练来源</span></div><p>{{ item.text }}</p><small>{{ item.source }} · {{ item.locator.page ? `第 ${item.locator.page} 页` : pretty(item.locator) }}</small></article><p v-if="active && !searchResults.length" class="muted">输入关键词检索；没有已批准的匹配资料时返回空结果。</p></section>
-        <section class="panel"><div class="section-heading"><div><h2>资料版本</h2><p>批准后的版本才进入建议检索。</p></div><button class="secondary small" @click="run('刷新资料', loadReferences)">刷新</button></div><div v-if="!refs.length" class="empty-state"><p>暂无已登记资料</p></div><article v-for="doc in refs" :key="`${doc.entry_id}:${doc.version}`" class="document-row"><div><strong>{{ doc.title || (doc.kind === 'experience' ? '案例经验' : '资料') }}</strong><small>{{ doc.source }} · 版本 {{ doc.version }}</small></div><span class="tag" :class="doc.state === 'approved' ? 'teal' : 'amber'">{{ { approved: '已批准', rejected: '已拒绝', pending_review: '待审核', draft: '草稿' }[doc.state] || doc.state }}</span><div v-if="safety && doc.state === 'pending_review'" class="button-group"><button class="secondary small" @click="reviewDocument(doc, 'approved')">批准</button><button class="ghost small" @click="reviewDocument(doc, 'rejected')">拒绝</button></div></article></section>
-        <section v-if="safety" class="panel"><details><summary>登记条文资料</summary><form @submit.prevent="importDocument"><div class="form-row"><label>资料名称<input v-model="documentForm.title" required></label><label>来源<input v-model="documentForm.source" required placeholder="填写真实资料来源"></label></div><div class="form-row"><label>版本<input v-model="documentForm.version" required></label><label>页码<input v-model="documentForm.page" type="number" min="1" required></label></div><label>条文原文<textarea v-model="documentForm.text" rows="5" required placeholder="录入待审核的真实原文"></textarea></label><button class="primary" :disabled="!source?.face_id || !!busy">登记并送审</button></form></details></section>
+        <KnowledgeWorkspace :api="api" :entries="refs" :face-id="source?.face_id" :source-id="sourceId" :session="active" :safety="safety" @refresh="run('刷新资料', loadReferences)" @notice="value => notice = value" @error="value => error = value" />
       </template>
       <template v-if="tab === 'cases'">
         <section class="panel"><div class="section-heading"><div><h2>事件依据与处置</h2><p>{{ selectedEvent ? `${mineTime(selectedEvent.start_at)} · ${selectedEvent.point_id}` : '请在监测与预警中选择事件。' }}</p></div><span v-if="selectedEvent" class="tag teal">{{ operationContext === 'rehearsal' ? '演练记录' : '现场记录' }}</span></div>
@@ -518,8 +534,20 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
             <template v-else-if="attribution.status === 'not_ready'"><p v-for="need in attribution.missing_fields || []" :key="need" class="hint">{{ attributionNeeds[need] || '补齐溯源分析所需资料' }}</p><p v-if="!attribution.missing_fields?.length" class="hint">等待溯源分析所需数据。</p></template>
             <p v-else class="hint">{{ attribution.status === 'failed' ? '本次溯源分析未完成。' : '等待事件溯源分析。' }}</p>
           </section>
-          <div class="subsection"><h3>引用资料并生成建议</h3><form class="search-form" @submit.prevent="searchReferences"><input v-model="referenceQuery" placeholder="检索已批准条文" aria-label="建议资料关键词"><button class="secondary" :disabled="!!busy">检索</button></form><label v-for="refItem in searchResults" :key="refItem.reference_id" class="reference-select"><input v-model="selectedRefs" type="checkbox" :value="refItem.reference_id"><span>{{ refItem.text }}<small>{{ refItem.source }} · {{ refItem.locator.page ? `第 ${refItem.locator.page} 页` : pretty(refItem.locator) }}</small></span></label><button class="primary small" :disabled="!selectedRefs.length || !!busy" @click="draftAdvice">生成带出处建议</button></div>
-          <div class="subsection"><div class="section-heading"><h3>人工审核与执行</h3><span class="tag">{{ phases[phase] }}</span></div><label v-if="adviceOptions.length">建议版本<select v-model="selectedAdvice"><option v-for="item in adviceOptions" :key="`${item.advice_id}:${item.version}`" :value="`${item.advice_id}:${item.version}`">版本 {{ item.version }} · {{ { approved: '已批准', rejected: '已拒绝' }[caseResult.advice_review_status?.[`${item.advice_id}:${item.version}`]?.decision] || '待审核' }}</option></select></label><ol v-if="chosenAdvice" class="advice-items"><li v-for="item in chosenAdvice.items" :key="item.reference_id">{{ item.text }}<small>{{ item.source }} · {{ item.locator.page ? `第 ${item.locator.page} 页` : pretty(item.locator) }}</small></li></ol><label>操作说明<textarea v-model="caseContent" rows="3" placeholder="填写人工核实、执行、反馈或复核记录"></textarea></label><div class="action-buttons"><button class="secondary small" :disabled="phase !== 'new' || !caseContent.trim() || !!busy" @click="recordAction('confirm_event')">确认事件</button><template v-if="safety"><button class="secondary small" :disabled="!chosenAdvice || !['confirmed','advice_reviewed'].includes(phase) || !!busy" @click="recordAction('review_advice', 'approved')">批准建议</button><button class="ghost small" :disabled="!chosenAdvice || !['confirmed','advice_reviewed'].includes(phase) || !!busy" @click="recordAction('review_advice', 'rejected')">拒绝建议</button></template><button class="secondary small" :disabled="selectedReview !== 'approved' || !['confirmed','advice_reviewed'].includes(phase) || !caseContent.trim() || !!busy" @click="recordAction('record_execution')">记录执行</button><button class="secondary small" :disabled="phase !== 'executed' || !caseContent.trim() || !!busy" @click="recordAction('submit_feedback')">提交反馈</button><button class="primary small" :disabled="phase !== 'feedback_submitted' || !caseContent.trim() || !!busy" @click="recordAction('review_case')">完成复核</button></div></div>
+          <div class="subsection"><h3>引用资料并生成建议</h3>
+            <form class="search-form" @submit.prevent="searchReferences"><input v-model="referenceQuery" placeholder="检索已批准条文" aria-label="建议资料关键词"><button class="secondary" :disabled="!!busy">检索</button></form>
+            <article v-for="refItem in searchResults" :key="refItem.reference_id" class="case-reference-option"><label class="reference-select"><input v-model="selectedRefs" type="checkbox" :value="refItem.reference_id"><span>{{ refItem.text }}<small>{{ refItem.source }} · 版本 {{ refItem.version }} · {{ referenceLocation(refItem.locator) }}</small></span></label><button class="ghost small" :disabled="!refItem.entry_id && !refItem.document_id" @click="openCaseReference(refItem)">查看引用原文</button></article>
+            <button class="primary small" :disabled="!selectedRefs.length || !!busy || phase === 'reviewed'" @click="draftAdvice">生成带出处建议</button>
+          </div>
+          <section v-if="caseReferenceLoading || caseReference" class="subsection case-original" role="region" aria-label="处置引用原文"><div class="section-heading"><h3>{{ caseReference?.title || '引用原文' }}</h3><button class="ghost small" @click="closeCaseReference">关闭引用原文</button></div><p v-if="caseReferenceLoading" class="muted">正在读取引用原文。</p><template v-if="caseReference"><small>{{ caseReference.source }} · 版本 {{ caseReference.version }}</small><article v-for="item in caseReference.fragments" :key="item.reference_id"><strong>{{ referenceLocation(item.locator) }}</strong><p>{{ item.text }}</p></article></template></section>
+          <div class="subsection"><div class="section-heading"><h3>人工审核与执行</h3><span class="tag">{{ phases[phase] }}</span></div>
+            <label v-if="adviceOptions.length">建议版本<select v-model="selectedAdvice"><option v-for="item in adviceOptions" :key="`${item.advice_id}:${item.version}`" :value="`${item.advice_id}:${item.version}`">版本 {{ item.version }} · {{ adviceIsStale(caseResult, item) ? '依据已更新或失效' : ({ approved: '已批准', rejected: '已拒绝' }[caseResult.advice_review_status?.[`${item.advice_id}:${item.version}`]?.decision] || '待审核') }}</option></select></label>
+            <p v-if="chosenAdvice?.knowledge_as_of" class="muted">资料核验时点 {{ mineTime(chosenAdvice.knowledge_as_of) }} · 事件数据时间 {{ mineTime(chosenAdvice.data_as_of) }}</p><p v-if="chosenAdviceStale" class="hint amber-text">建议依据已更新或失效，请重新生成并审核。</p>
+            <ol v-if="chosenAdvice" class="advice-items"><li v-for="item in chosenAdvice.items" :key="item.reference_id">{{ item.text }}<small>{{ item.source }} · {{ referenceLocation(item.locator) }}</small><button class="ghost small" :disabled="!item.entry_id && !item.document_id" @click="openCaseReference(item)">查看建议出处</button></li></ol>
+            <label>操作说明<textarea v-model="caseContent" rows="3" placeholder="填写人工核实、执行、反馈或复核记录"></textarea></label>
+            <div class="action-buttons"><button class="secondary small" :disabled="!caseAction('confirm_event')" @click="recordAction('confirm_event')">确认事件</button><template v-if="safety"><button class="secondary small" :disabled="!caseAction('review_advice')" @click="recordAction('review_advice', 'approved')">批准建议</button><button class="ghost small" :disabled="!caseAction('review_advice')" @click="recordAction('review_advice', 'rejected')">拒绝建议</button></template><button class="secondary small" :disabled="!caseAction('record_execution')" @click="recordAction('record_execution')">记录执行</button><button class="secondary small" :disabled="!caseAction('submit_feedback')" @click="recordAction('submit_feedback')">提交反馈</button><button class="primary small" :disabled="!caseAction('review_case')" @click="recordAction('review_case')">完成复核</button></div>
+          </div>
+          <section v-if="caseResult?.reviewed_snapshot" class="subsection case-archive" role="region" aria-label="复核归档"><div class="section-heading"><h3>复核归档</h3><span class="tag teal">已冻结归档</span></div><dl><div><dt>事件版本</dt><dd>第{{ caseResult.reviewed_snapshot.event_revision }}版</dd></div><div><dt>归档时间</dt><dd>{{ mineTime(caseResult.reviewed_snapshot.reviewed_at) }}</dd></div><div><dt>记录性质</dt><dd>{{ caseResult.reviewed_snapshot.operation_context === 'rehearsal' ? '演练记录' : '现场记录' }}</dd></div><div><dt>操作与引用</dt><dd>{{ caseResult.reviewed_snapshot.actions?.length || 0 }}条操作 · {{ caseResult.reviewed_snapshot.source_refs?.length || 0 }}条资料引用</dd></div></dl><form @submit.prevent="submitExperience"><label>经验内容<textarea v-model="experienceContent" rows="3" required placeholder="归纳核实过程、执行结果和适用条件"></textarea></label><button class="primary small" :disabled="!experienceContent.trim() || !!busy">提交经验审核</button></form></section>
           <div v-if="caseResult?.actions?.length" class="subsection"><h3>操作记录</h3><ol class="timeline"><li v-for="item in caseResult.actions" :key="item.action_id"><strong>{{ { confirm_event:'确认事件',review_advice:'审核建议',record_execution:'记录执行',submit_feedback:'提交反馈',review_case:'处置复核' }[item.action_type] }}</strong><p>{{ item.content || ({ approved:'批准',rejected:'拒绝' }[item.review_decision]) }}</p><small>{{ item.actor_id }} · 操作时间 {{ mineTime(item.occurred_at) }}<br>针对数据时点 {{ mineTime(item.data_as_of) }}</small></li></ol></div>
           </template><div v-else class="empty-state"><span>☑</span><p>选择事件后查看依据、审核建议和记录处置。</p><button class="secondary small" @click="tab = 'monitor'">前往监测与预警</button></div></section>
       </template>
@@ -532,3 +560,8 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
     </div>
   </div>
 </template>
+
+<style scoped>
+.case-reference-option{border-bottom:1px solid #29465b;padding-bottom:12px;margin-bottom:12px}.case-reference-option .reference-select{margin-bottom:4px}.case-original article{margin-top:12px;padding:12px;background:#102b40;border:1px solid #294a62;border-radius:4px}.case-original article strong{font-size:12px;color:#8acddc}.case-original article p{white-space:pre-wrap;line-height:1.9;margin:7px 0 0;overflow-wrap:anywhere}.advice-items button{display:block;margin-top:5px}.case-archive dl{display:grid;gap:8px;margin:16px 0;font-size:13px}.case-archive dl>div{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px}.case-archive dt{color:#90adc4}.case-archive dd{margin:0;overflow-wrap:anywhere}
+@media(max-width:760px){.case-archive dl>div{grid-template-columns:82px minmax(0,1fr)}}
+</style>

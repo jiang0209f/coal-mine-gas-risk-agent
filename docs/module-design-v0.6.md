@@ -16,7 +16,7 @@
 - KMeans/SVC 候选溯源已启用。查询适用事件的证据时触发推理，同一事件版本、模型配置和输入标识复用运行结果；runner 负责监测、预测和事件计算。
 - 深蓝工作台已迁移到正式 Vue，接通真实监测、指定版本预测、事件依据和候选溯源；操作及验收见[前端联动说明](frontend-linkage.md)。
 - DeepSeek API 和八工具编排已接入，最多 5 轮、12 次工具调用。按2026-11-04确定的数据规则，真实来源在本机处理，云端仅使用包含合成观测、事件、预测、资料及处置的独立数据库；无需额外训练大模型。
-- 现有新元 31002 工作面作业规程材料待入库、核对版本及审核。资料审核后用于检索和建议引用。
+- 现有新元31002工作面作业规程按用户2026-11-04确认暂作现行，后续新版本替换；正式资料入库后经人工审核用于检索和建议引用，研究草稿保留草稿性质。
 - 当前阶段保持模型权重和效果口径，聚类修正、效果改进和真实成因标注列入后续研究。
 
 ## 2. 模块职责、接口与调用关系
@@ -31,7 +31,7 @@
 | prediction | 会话、测点、模型版本、闭合历史窗口；预测及候选溯源运行 | 预测序列、候选类别、运行编号、输入引用、缺失字段 | `GET/POST /models`、`GET /model-packages`、`POST /model-package-runs`、`GET /model-package-runs/{run_id}`、`POST /forecasts`、`GET /forecasts/{run_id}` | 读取 data，通过本地模型运行环境推理；traceability 调用事件候选溯源 |
 | alerts | 有效观测或物理浓度预测、规则版本；识别并修订事件 | 事件编号、类型、等级、状态、版本及证据引用 | `GET /rules`、`GET /events` | runner 调用判断；traceability、cases 读取事件快照；当前规则接口为查询 |
 | traceability | 当前会话、事件编号及可选事件版本；冻结证据并触发适用的候选溯源 | 观测片段、预测运行、规则、候选溯源、缺失字段 | `GET /evidence` | 调用 alerts、data、prediction；作为页面和智能体统一证据入口 |
-| knowledge | 资料元数据、正文片段、审核结论、检索词、事件及引用编号 | 可引用片段、建议版本、审核经验 | `GET /references`、`POST /references/imports`、`GET /references/{entry_id}`、`POST /references/{entry_id}/review`、`POST /references/search`、`POST /advice`、`POST /experiences`、`POST /experiences/{experience_id}/review` | 读取事件依据、已审核资料及已复核处置快照；后续贯通文档上传与原文定位 |
+| knowledge | 原件、资料元数据、正文片段、审核结论、检索词、事件及引用编号 | 当前有效引用、建议版本、审核经验 | `POST /references/files`、`GET /references/files/{file_id}`、`GET /references/files/{file_id}/content`、`GET /references`、`POST /references/imports`、`GET /references/{entry_id}`、`POST /references/{entry_id}/review`、`POST /references/search`、`POST /advice`、`POST /experiences`、`POST /experiences/{experience_id}/review` | 本地上传与原文定位、审核及版本替代；读取事件依据及已复核处置快照 |
 | cases | 事件、人工动作、建议编号与版本、执行及反馈内容 | 处置阶段、动作历史、建议审核状态、待办、复核快照 | `GET /cases/{event_id}`、`POST /cases/{event_id}/actions` | 调用 alerts、knowledge、auth；供前端操作和 agent 查询 |
 | agent | 用户问题或事件简报任务；服务端注入身份、来源和时钟 | 回答、工具步骤、结果卡、引用、任务状态及审计 | `POST /chat`、`GET /tasks/{task_id}`、`POST /tasks/{task_id}/cancel`、`GET/POST /events/{event_id}/brief`、`POST /events/{event_id}/brief/cancel` | 对话编排八工具；主动简报限定四个只读工具并展示引用 |
 | evaluation | 冻结数据清单、事件、样本、任务和有效监测时长 | 清单哈希、匹配明细、指标分子分母和报告 | `GET/POST /evaluations`、`GET /evaluations/{evaluation_id}` | 读取冻结记录；后续在本服务内增加会话记录采集器 |
@@ -123,15 +123,15 @@ flowchart TD
 
 ## 7. 资料、建议与人工闭环设计
 
-资料页设资料清单、原文片段、审核记录和经验记录。先导入现有新元 31002 作业规程，登记标题、来源、版本、适用范围与页段定位，逐条审核后参与检索。
+资料页已贯通资料清单、原件上传、原文片段、审核记录和经验记录。登记标题、来源、版本、适用工作面与页段定位，资料初始待审，审核通过后参与检索；现有新元31002作业规程按用户确认暂作现行，后续新版本替换。
 
-当前 HTTP `/api/files` 支持监测 CSV/XLSX；knowledge 已有 PDF/DOCX 提取能力，后续需贯通受控文件入口。**拟新增接口**：`POST /api/references/files` 上传资料，返回 file_id；现有 `/api/references/imports` 在保持现有导入方式的同时扩展接受该 file_id。
+**已实现接口**：`POST /api/references/files`接收20MiB以内的PDF、DOCX、TXT或MD原件；`GET /api/references/files/{file_id}`与`GET /api/references/files/{file_id}/content`读取元数据及原件；`POST /api/references/imports`接受`file_id`并兼容内联原文。服务保存SHA-256，分段保留物理页码、段号、表格或行号定位。监测CSV/XLSX继续使用`/api/files`。
 
-检索现阶段采用已审核资料的文本匹配。界面展示命中片段、来源、版本、适用范围和定位；选择依据后调用现有 `/api/advice`。生成建议前满足“事件可见、引用存在且已审核、适用范围一致”。
+检索采用已审核资料的本地多关键词文本匹配，按服务器当前时间核验有效期。尚未生效的资料不能批准；同一`entry_id`的新版本审核通过后，旧版标为`superseded`，保留历史引用但不进入新建议。界面展示命中片段、来源、版本、范围和定位；`POST /api/advice`生成具体建议版本，分别记录事件`data_as_of`和当前资料`knowledge_as_of`。
 
-处置详情通过现有 case 查询一次获得建议版本、审核结论、动作历史和待办。建议审核绑定具体版本；复核后的快照用于提炼经验，经验审核通过后加入检索。
+处置详情一次查询返回建议版本、审核结论、动作历史、`pending_items`、`advice_validity`及`reviewed_snapshot`。建议审核和执行绑定具体版本及当前事件修订，并重新校验引用资料当前有效、未被替代；过时建议需重新生成并审核。每次动作记录事件快照；复核后冻结会话、来源、事件修订、执行建议和引用，基于该快照提交经验审核。经验继承现场或演练性质，演练经验不进入实时现场建议。
 
-阶段验收：完成“规程导入→审核→检索→引用→建议审核→执行→反馈→复核→经验审核”全链；每条建议可打开原文，动作保留身份和双时间，演练经验按来源性质过滤。
+本阶段已完成“资料导入→审核→检索→引用→建议审核→执行→反馈→复核→经验审核”的隔离HTTP全链验收。实际原件的解析与入库验证保持待审，正式条文审核由业务人员完成。材料包、接口和验收范围见[知识库与人工闭环说明](knowledge-cases.md)。
 
 ## 8. 竞赛展示与回放评估
 
