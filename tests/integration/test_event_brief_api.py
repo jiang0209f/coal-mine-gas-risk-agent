@@ -3,7 +3,7 @@
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from threading import Barrier, Event, Lock, local
+from threading import Barrier
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -316,7 +316,7 @@ def test_unapproved_source_preserves_local_evidence_and_never_constructs_adapter
     assert brief["task"]["result_cards"] and brief["task"]["citations"]
 
 
-def test_service_startup_marks_only_interrupted_briefs_and_preserves_evidence(tmp_path):
+def test_service_startup_marks_interrupted_chats_and_briefs_and_preserves_evidence(tmp_path):
     settings = Settings(_env_file=None, runtime_dir=tmp_path,
                         database_url=f"sqlite+pysqlite:///{(tmp_path/'restart.db').as_posix()}", deepseek_api_key=None)
     store = Store(settings.database_url)
@@ -335,32 +335,17 @@ def test_service_startup_marks_only_interrupted_briefs_and_preserves_evidence(tm
             assert task["state"] == "failed" and task["error_code"] == "task_interrupted"
             assert task["tool_calls"] == calls and task["citations"] == citations
         assert services["store"].get("task", "completed-brief")["state"] == "completed"
-        assert services["store"].get("task", "chat-task") == ordinary
+        chat = services["store"].get("task", "chat-task")
+        assert chat["state"] == "failed" and chat["error_code"] == "task_interrupted"
+        assert chat["tool_calls"] == ordinary["tool_calls"] and chat["messages"] == ordinary["messages"]
     finally:
         services["store"].close()
 
 
 def test_concurrent_ticks_claim_one_auto_brief_per_event_grade(api, monkeypatch):
     client, services, actor, session, captured = api
-    barrier, first_done, thread_state, counter_lock = Barrier(2), Event(), local(), Lock()
+    barrier = Barrier(2)
     original_query = services["alerts"].query_events
-    original_evaluate = services["alerts"].evaluate_forecast
-    evaluations = 0
-    def synchronized_query(context, **kwargs):
-        result = original_query(context, **kwargs)
-        if not getattr(thread_state, "read_before", False):
-            thread_state.read_before = True
-            assert result == []
-            barrier.wait(timeout=10)
-        return result
-    def synchronized_evaluate(context, run):
-        nonlocal evaluations
-        with counter_lock:
-            evaluations += 1
-            order = evaluations
-        if order == 2:
-            assert first_done.wait(timeout=10)
-        return original_evaluate(context, run)
     def forecast(context, point_id):
         cutoff = START
         return dict(run_id=str(uuid4()), session_id=context.session_id, source_id=context.source_id,
@@ -369,24 +354,20 @@ def test_concurrent_ticks_claim_one_auto_brief_per_event_grade(api, monkeypatch)
             quantity_semantics="physical_forecast", unit="%", interval_values=[dict(
                 start_at=utcstr(cutoff+timedelta(minutes=5*i)), end_at=utcstr(cutoff+timedelta(minutes=5*(i+1))),
                 value=.9) for i in range(12)])])
-    monkeypatch.setattr(services["alerts"], "query_events", synchronized_query)
-    monkeypatch.setattr(services["alerts"], "evaluate_forecast", synchronized_evaluate)
     monkeypatch.setattr(services["prediction"], "run_prediction", forecast)
     jobs = []
     def run_tick():
-        result = services["runner"].run_once(actor, session["session_id"], START+timedelta(minutes=1), schedule=jobs.append)
-        first_done.set()
-        return result
+        barrier.wait(timeout=10)
+        return services["runner"].run_once(actor, session["session_id"], START+timedelta(minutes=1), schedule=jobs.append)
     with ThreadPoolExecutor(max_workers=2) as pool:
         future_a, future_b = pool.submit(run_tick), pool.submit(run_tick)
         results = [future_a.result(timeout=15), future_b.result(timeout=15)]
     assert len(captured.submissions) == len(jobs) == 1, "Same event and grade must claim one automatic model task"
     assert results[0]["events"][0]["event_id"] == results[1]["events"][0]["event_id"]
-    assert len({result["events"][0]["event_revision"] for result in results}) == 2
+    assert len({result["events"][0]["event_revision"] for result in results}) == 1
+    assert sum(result.get("reused",False) for result in results) == 1
     assert results[0]["briefs"][0]["task_id"] == results[1]["briefs"][0]["task_id"]
     current = original_query(services["sessions"].get_context(actor, session["session_id"]))[0]
-    monkeypatch.setattr(services["alerts"], "query_events", original_query)
-    monkeypatch.setattr(services["alerts"], "evaluate_forecast", original_evaluate)
     response = client.post(f"/api/events/{current['event_id']}/brief", json={
         "session_id": session["session_id"], "event_revision": current["event_revision"]})
     assert response.status_code == 200 and len(captured.submissions) == 2, "Explicit revision generation remains available"

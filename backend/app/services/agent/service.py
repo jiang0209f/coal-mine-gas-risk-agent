@@ -2,8 +2,9 @@
 
 from collections.abc import Callable
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
+import re
 from time import perf_counter
 from uuid import uuid4
 
@@ -119,6 +120,40 @@ class AgentService:
     def get_task(self, actor: Actor, task_id: str) -> dict:
         return self._public(self._get_task(actor, task_id))
 
+    def recover_interrupted(self) -> int:
+        """End lost in-memory chat work; retrying remains an explicit user action."""
+        recovered = 0
+        finished = utcstr(now_utc())
+        with self.store.transaction() as connection:
+            for task in self.store.list("task", connection):
+                if task.get("task_type") not in (None, "chat") or task["state"] not in ("queued", "running"):
+                    continue
+                calls = task.get("tool_calls", [])
+                for call in calls:
+                    if call["status"] in ("queued", "started", "running"):
+                        call.update(status="error", error_code="task_interrupted", finished_at=finished)
+                unanswered = {}
+                for message in task.get("messages", []):
+                    if message["role"] == "assistant":
+                        unanswered.update({call["id"]: call for call in message.get("tool_calls") or []})
+                    elif message["role"] == "tool":
+                        unanswered.pop(message.get("tool_call_id"), None)
+                for call_id, call in unanswered.items():
+                    if not any(item.get("call_id") == call_id for item in calls):
+                        calls.append(dict(call_id=call_id, name=call["function"]["name"], status="error",
+                                          error_code="task_interrupted", finished_at=finished, elapsed_ms=0))
+                    task["messages"].append({"role": "tool", "tool_call_id": call_id,
+                        "content": json.dumps({"status": "error", "error_code": "task_interrupted",
+                            "message": "服务已重新启动，此工具调用未完成确认，请核对已保存的业务结果。"}, ensure_ascii=False)})
+                text = "服务已重新启动，未完成的对话已中断，可重新提交；已保存的工具结果和依据保留。"
+                task.update(state="failed", error_code="task_interrupted", final_text=text, answer=text,
+                            updated_at=finished, tool_calls=calls, tool_steps=deepcopy(calls),
+                            metrics={"tool_call_count": len(calls),
+                                     "tool_call_success_rate": sum(call["status"] == "success" for call in calls) / len(calls) if calls else None})
+                self.store.put("task", task["task_id"], task, connection)
+                recovered += 1
+        return recovered
+
     def cancel_task(self, actor: Actor, task_id: str) -> dict:
         task = self._get_task(actor, task_id)
         if task.get("task_type") == "event_brief":
@@ -135,11 +170,13 @@ class AgentService:
     def _message(value) -> tuple[str, str | None]:
         if isinstance(value, str):
             text, task_id = value, None
-        elif isinstance(value, dict) and not set(value) - {"question", "message", "answer", "task_id"}:
+        elif isinstance(value, dict) and not set(value) - {"question", "message", "answer", "task_id", "selected_point_id"}:
             text = value.get("answer", value.get("question", value.get("message")))
             task_id = value.get("task_id")
             if task_id is not None and (not isinstance(task_id, str) or not task_id):
                 raise DomainError("任务编号无效")
+            if "selected_point_id" in value and (not isinstance(value["selected_point_id"], str) or not value["selected_point_id"].strip()):
+                raise DomainError("所选测点编号无效")
         else:
             raise DomainError("聊天内容格式无效")
         if not isinstance(text, str) or not text.strip() or len(text) > 20000:
@@ -150,6 +187,9 @@ class AgentService:
         source = self._scope(context)
         conversation_as_of = utcstr(context.as_of)
         question, task_id = self._message(message)
+        selected_point = message.get("selected_point_id") if isinstance(message, dict) else None
+        if selected_point is not None and not any(point["point_id"] == selected_point for point in self._local_points(context)):
+            raise DomainError("所选测点不属于当前来源", code="forbidden", status_code=403)
         if task_id:
             task = self._get_task(context.actor, task_id)
             if task.get("task_type") == "event_brief":
@@ -198,6 +238,16 @@ class AgentService:
                 "missing_fields": [], "usage": {}, "model": None, "final_text": "",
                 "created_at": utcstr(now_utc()),
             }
+        if selected_point is not None:
+            task["selected_point_id"] = selected_point
+            for entry in task["messages"]:
+                if entry["role"] == "system":
+                    prefix, marker, serialized = entry["content"].partition("\n执行上下文：")
+                    if marker:
+                        metadata = json.loads(serialized)
+                        metadata["selected_point_id"] = selected_point
+                        entry["content"] = prefix + marker + json.dumps(metadata, ensure_ascii=False)
+                    break
         return self._save(task), context
 
     def _service(self, name):
@@ -306,20 +356,138 @@ class AgentService:
         task["tool_calls"].append(audit)
         return payload
 
+    @staticmethod
+    def _local_id(question, field):
+        match = re.search(rf"(?<![A-Za-z0-9_]){field}\s*[:=：]\s*([A-Za-z0-9_./:-]+)", question)
+        return match[1] if match else None
+
+    def _local_points(self, context):
+        face_id = self._scope(context)["face_id"]
+        catalog = getattr(self.services.get("data"), "list_points", None)
+        points = catalog(context.actor, context.source_id) if callable(catalog) else self.store.list("point")
+        return [point for point in points if point.get("source_id") == context.source_id
+                and point.get("face_id", face_id) in context.actor.face_ids]
+
+    @staticmethod
+    def _local_mentions(question, entries, identifier, aliases=()):
+        return {entry[identifier] for entry in entries if any(
+            isinstance(entry.get(key), str) and entry[key]
+            and re.search(r"(?<![A-Za-z0-9_])" + re.escape(entry[key]) + r"(?![A-Za-z0-9_])", question, re.IGNORECASE)
+            for key in (identifier, *aliases))}
+
+    def _local_point(self, task, context, question):
+        points = self._local_points(context)
+        identifiers = {point["point_id"] for point in points}
+        explicit = self._local_id(question, "point_id")
+        mentioned = self._local_mentions(question, points, "point_id", ("name", "source_tag"))
+        selected = task.get("selected_point_id")
+        if selected:
+            return selected if selected in identifiers and (not explicit or explicit == selected) and (not mentioned or mentioned == {selected}) else None
+        if explicit:
+            return explicit if explicit in identifiers else None
+        if len(mentioned) == 1:
+            return next(iter(mentioned))
+        return points[0]["point_id"] if len(points) == 1 and not mentioned else None
+
     def _template(self, task: dict, context: ExecutionContext) -> dict:
-        task["method"] = "structured_template"
-        response = self._tool(task, context, {
-            "id": "template-events", "function": {"name": "query_events", "arguments": "{}"},
-        })
-        if response["status"] == "success":
-            count = len(response["data"])
-            task["state"] = "completed"
-            task["final_text"] = f"当前来源{context.source_id}，数据时刻{utcstr(context.as_of)}，可见事件{count}个。生成方式：结构化模板。"
-        else:
-            task["state"] = "partial"
-            task["missing_fields"] = ["event_query_result"]
-            task["final_text"] = f"当前来源{context.source_id}，数据时刻{utcstr(context.as_of)}。事件查询未完成。生成方式：结构化模板。"
+        task.update(method="structured_template", local_intent=None, missing_fields=[])
+        try:
+            return self._local_answer(task, context)
+        except DomainError as error:
+            task.update(state="partial", error_code=error.code, final_text=f"本机查询未完成：{error.message}")
+        except Exception:
+            task.update(state="partial", error_code="local_query_failed", final_text="本机查询未完成，请重试或查看对应业务页面。")
         return self._save(task)
+
+    def _local_answer(self, task, context):
+        question = next((item["content"] for item in reversed(task["messages"]) if item["role"] == "user"), task["question"])
+        def finish(text, state="completed", missing=()):
+            task.update(state=state, final_text=text, missing_fields=list(missing))
+            return self._save(task)
+        def query(name, arguments):
+            return self._tool(task, context, {"id": "local-" + str(len(task["tool_calls"])+1),
+                "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)}})
+        foreign = self._local_id(question, "source_id")
+        if foreign and foreign != context.source_id:
+            return finish("请先切换到目标来源的会话，再查询该来源数据。", "awaiting_input", ["source_id"])
+        if any(word in question for word in ("自动批准", "审核通过", "记录执行", "提交反馈", "复核归档", "确认事件", "生成建议", "起草建议")):
+            return finish("请在处置页面生成建议、审核或登记人工动作；本机问答提供监测、事件、资料和处置查询。", "awaiting_input", ["manual_action"])
+        if any(word in question for word in ("检索", "搜索", "规程", "条文", "资料", "知识库")):
+            task["local_intent"] = "documents"
+            words = re.sub(r"^(?:请)?(?:检索|搜索|查找|查询)(?:已审核的?)?(?:资料|知识库|文档)?[：:\s]*", "", question).strip()
+            if not words:
+                return finish("请输入资料检索关键词，例如：检索资料：瓦斯 超限。", "awaiting_input", ["query"])
+            name, arguments = "search_documents", {"query": words}
+        elif any(word in question for word in ("依据", "溯源", "原因", "处置", "进展", "进度", "反馈记录")):
+            case = any(word in question for word in ("处置", "进展", "进度", "反馈记录"))
+            task["local_intent"] = "case" if case else "evidence"
+            event_id = self._local_id(question, "event_id")
+            if not event_id:
+                events = query("query_events", {})
+                if events["status"] != "success":
+                    return finish("当前事件查询未完成，请重试。", "partial", ["event_query_result"])
+                mentioned = self._local_mentions(question, events["data"], "event_id")
+                if len(mentioned) == 1:
+                    event_id = next(iter(mentioned))
+                elif len(events["data"]) == 1:
+                    event_id = events["data"][0]["event_id"]
+                else:
+                    return finish("请选择当前会话的具体事件，并在问题中填写 event_id=事件编号。", "awaiting_input", ["event_id"])
+            name, arguments = ("get_case" if case else "get_event_evidence"), {"event_id": event_id}
+        elif "预测" in question or any(word in question for word in ("监测", "浓度", "测值", "曲线", "序列")):
+            prediction = "预测" in question
+            task["local_intent"] = "prediction" if prediction else "series"
+            point_id = self._local_point(task, context, question)
+            if not point_id:
+                return finish("请选择当前来源的测点，或在问题中填写 point_id=测点编号；问题与所选测点需一致。", "awaiting_input", ["point_id"])
+            if prediction:
+                catalog = getattr(self.services.get("prediction"), "list_models", None)
+                models = catalog(context) if callable(catalog) else []
+                models = [model for model in models if model.get("source_id", context.source_id) == context.source_id
+                          and point_id in model.get("point_ids", [])]
+                explicit = self._local_id(question, "model_id")
+                mentioned = self._local_mentions(question, models, "model_id", ("name",))
+                model_id = explicit if explicit in {model["model_id"] for model in models} else next(iter(mentioned)) if not explicit and len(mentioned) == 1 else None
+                if not model_id:
+                    return finish("请指定当前测点已登记的预测模型，例如 model_id=模型编号。", "awaiting_input", ["model_id"])
+                name, arguments = "run_prediction", {"point_id": point_id, "model_id": model_id}
+            else:
+                period = re.search(r"最近\s*([0-9一二三四五六七八九十]+)\s*(小时|h|分钟)", question, re.IGNORECASE)
+                if (any(word in question for word in ("明天", "未来", "昨天", "上周")) or re.search(r"\d{4}-\d{2}-\d{2}", question)
+                        or period and (period[1] not in ("1", "一") or period[2] == "分钟")):
+                    return finish("本机监测问答当前支持会话截止时刻前一小时；请使用“最近一小时”，其他区间请在监测页面查询。", "awaiting_input", ["time_range"])
+                name, arguments = "query_series", {"point_id": point_id,
+                    "start_at": utcstr(context.as_of-timedelta(hours=1)), "end_at": utcstr(context.as_of)}
+        elif any(word in question for word in ("事件", "预警", "继续查询")):
+            task["local_intent"] = "events"
+            name, arguments = "query_events", {}
+        else:
+            return finish("本机问答支持最近一小时监测、预警列表、指定事件依据、已审核资料检索、处置进展及指定模型预测。请说明查询对象。", "awaiting_input", ["query_type"])
+        response = query(name, arguments)
+        if response["status"] != "success":
+            return finish(f"本机查询未完成：{response.get('message', '请重试或查看对应业务页面。')}", "partial", [name+"_result"])
+        data = response["data"]
+        if name == "query_events":
+            return finish(f"当前来源{context.source_id}，数据时刻{utcstr(context.as_of)}，可见事件{len(data)}个。生成方式：本机工具查询。")
+        if name == "query_series":
+            rows = data.get("rows", [])
+            valid = [row for row in rows if row.get("value") is not None]
+            tail = f"片段末值{valid[-1]['value']}{data.get('unit', '')}，时刻{valid[-1]['event_time']}。" if valid else "返回片段暂无有效测值。"
+            return finish(f"本机工具查询：测点{arguments['point_id']}，区间[{arguments['start_at']}, {arguments['end_at']})，共{data.get('total', len(rows))}条，已返回{len(rows)}条。{tail}")
+        if name == "search_documents":
+            if not data:
+                return finish("当前工作面未检索到符合关键词的已审核、现行有效资料。")
+            lines = [f"{item.get('title', item['source'])}（版本{item['version']}，{json.dumps(item.get('locator', {}), ensure_ascii=False)}）：{item['text'][:600]} [reference_id={item['reference_id']}]" for item in data[:3]]
+            return finish(f"本机检索命中{len(data)}条已审核有效资料，展示前{min(3, len(data))}条：\n"+"\n".join(lines))
+        if name == "get_event_evidence":
+            event = data.get("event_snapshot", data.get("event", {}))
+            return finish(f"事件{arguments['event_id']}第{event.get('event_revision', '?')}版，等级{event.get('alert_level', '待核')}；原始监测片段{len(data.get('observation_fragments', []))}条，规则版本{data.get('rules', {}).get('rule_version', event.get('rule_version', '待核'))}。依据与候选溯源见结果卡及引用。", "partial" if data.get("missing_fields") else "completed", data.get("missing_fields", []))
+        if name == "get_case":
+            phase = data.get("case", {}).get("phase", "new")
+            label = {"new": "待确认", "confirmed": "已确认", "advice_reviewed": "建议已审核", "executed": "已登记执行", "feedback_submitted": "已反馈", "reviewed": "已复核"}.get(phase, phase)
+            return finish(f"事件{arguments['event_id']}处置阶段：{label}；已有{len(data.get('actions', []))}条人工动作。待办：{'、'.join(data.get('pending_items', [])) or '无'}。")
+        status = data.get("status", "not_ready")
+        return finish(f"模型{arguments['model_id']}、测点{arguments['point_id']}的预测运行{data.get('run_id', '')}：{status}。结果与输入引用已保存在结果卡。", "completed" if status == "completed" else "partial", data.get("missing_fields", []))
 
     def chat(self, context: ExecutionContext, message) -> dict:
         task, context = self._begin(context, message)
@@ -337,6 +505,34 @@ class AgentService:
             return self._public(self._save(task))
         return self._public(task)
 
+    @staticmethod
+    def _required_query_tool(question):
+        for name in ("search_documents", "get_event_evidence", "get_case", "run_prediction", "query_series", "query_events"):
+            if name in question:
+                return name
+        if any(word in question for word in ("资料", "规程", "条文", "检索", "知识库")):
+            return "search_documents"
+        if re.search(r"(?:生成|起草).*建议", question):
+            return None
+        if any(word in question for word in ("依据", "溯源", "原因")):
+            return "get_event_evidence"
+        if any(word in question for word in ("处置", "进展", "进度", "反馈记录")):
+            return "get_case"
+        if "预测" in question:
+            return "run_prediction"
+        if any(word in question for word in ("监测", "浓度", "测值", "曲线", "序列", "原始数据")):
+            return "query_series"
+        if any(word in question for word in ("预警", "事件")):
+            return "query_events"
+        return None
+
+    def _unverified_references(self, text, cards):
+        mentioned = {value.rstrip(".;") for value in re.findall(
+            r"(?:\breference_id\b|引用编号)[`\"']?\s*(?:为|是|[:=：])\s*[`\"']?([^\s`\"'，,；;。)\]}>）]+)", text, re.IGNORECASE)}
+        known = {reference["reference_id"] for card in cards if card.get("status") == "success"
+                 for reference in self._references(card.get("data")) if reference.get("reference_id")}
+        return mentioned - known
+
     def _run(self, task: dict, context: ExecutionContext) -> dict:
         current = self.store.get("task", task["task_id"])
         if current["state"] == "cancelled":
@@ -349,16 +545,21 @@ class AgentService:
             return self._template(task, context)
         adapter = None
         started = perf_counter()
+        call_start, card_start = len(task["tool_calls"]), len(task["result_cards"])
+        question = next((message["content"] for message in reversed(task["messages"]) if message["role"] == "user"), task["question"])
+        required = self._required_query_tool(question)
+        forced, tool_choice = False, "auto"
         try:
             adapter = self.adapter_factory(self.settings)
-            for _ in range(5):
+            for round_index in range(5):
                 current = self.store.get("task", task["task_id"])
                 if current["state"] == "cancelled":
                     return current
                 if perf_counter() - started >= 60:
                     task["error_code"] = "tool_time_budget_exceeded"
                     break
-                response = adapter.chat(deepcopy(task["messages"]), tools=deepcopy(self.tools), tool_choice="auto")
+                response = adapter.chat(deepcopy(task["messages"]), tools=deepcopy(self.tools), tool_choice=tool_choice)
+                tool_choice = "auto"
                 current = self.store.get("task", task["task_id"])
                 if current["state"] == "cancelled":
                     return current
@@ -373,6 +574,21 @@ class AgentService:
                     text = answer.get("content")
                     if not isinstance(text, str) or not text.strip():
                         raise ValueError("empty response")
+                    verified = any(call["name"] == required and call["status"] == "success" for call in task["tool_calls"][call_start:])
+                    if required and not verified:
+                        if not forced and round_index < 4 and len(task["tool_calls"]) < 12:
+                            forced = True
+                            tool_choice = {"type": "function", "function": {"name": required}}
+                            continue
+                        task.update(state="partial", error_code="required_tool_result_missing",
+                                    final_text="本次业务查询缺少成功的工具结果，已保存完成的结果卡，请重试或查看对应业务页面。")
+                        task["missing_fields"] = list(dict.fromkeys([*task["missing_fields"], required+"_result"]))
+                        return self._save(task)
+                    if self._unverified_references(text, task["result_cards"][card_start:]):
+                        task.update(state="partial", error_code="unverified_reference_id",
+                                    final_text="本次回答的资料引用未通过核对，已保存实际工具结果和引用，请查看结果卡或重试。")
+                        task["missing_fields"] = list(dict.fromkeys([*task["missing_fields"], "verified_reference_ids"]))
+                        return self._save(task)
                     task["messages"].append(answer)
                     task["final_text"] = text
                     task["state"] = "partial" if task["missing_fields"] or any(item["status"] == "error" for item in task["tool_calls"]) else "completed"

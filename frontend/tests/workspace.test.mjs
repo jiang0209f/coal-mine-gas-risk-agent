@@ -6,6 +6,45 @@ import { adviceIsStale, canCaseAction, referenceLocation, referenceValidity } fr
 import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, seriesToPoints } from '../src/utils.mjs'
 import { chooseModelKey, contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, latestVisibleReading, modelKey, replayStart } from '../src/workspace.mjs'
 
+test('session model selection restores the point binding and retains the baseline default for unbound points', async () => {
+  const { sessionModelKey } = await import('../src/workspace.mjs')
+  const models = [{ model_id: 'baseline', version: 'v1', default_eligible: true }, { model_id: 'professional', version: 'v2', default_eligible: false }]
+  const session = { prediction_models: { T0: { model_id: 'professional', version: 'v2' } } }
+  assert.equal(sessionModelKey(models, session, 'T0', 'baseline:v1'), 'professional:v2')
+  assert.equal(sessionModelKey(models, session, 'T1'), 'baseline:v1')
+  assert.equal(sessionModelKey(models, session, 'T0'), 'professional:v2')
+  assert.deepEqual(session.prediction_models, { T0: { model_id: 'professional', version: 'v2' } })
+})
+
+test('late evidence invalidation removes a historical orange event from active warning counts', async () => {
+  const { isActiveEvent, needsEvidenceReview } = await import('../src/workspace.mjs')
+  const event = { alert_level: 'orange', event_state: 'new', evidence_status: 'insufficient_after_late_arrival' }
+  assert.equal(needsEvidenceReview(event), true)
+  assert.equal(isActiveEvent(event), false)
+  assert.equal(isActiveEvent({ alert_level: 'orange', event_state: 'new' }), true)
+  assert.equal(isActiveEvent({ event_state: 'ended' }), false)
+})
+
+test('late observation citations read the frozen raw value from late fragments', () => {
+  const late = { id: 'late-observation', event_time: '2026-11-04T10:02:00Z', raw_value: '0.10', value: 0.1 }
+  const packet = { task: { result_cards: [{ tool: 'get_event_evidence', data: { observation_fragments: [], late_observation_fragments: [late] } }] } }
+  const detail = localCitationDetail(packet, { kind: 'observation', observation_id: late.id })
+  assert.deepEqual(detail.observations, [late])
+  assert.equal(detail.observations[0].raw_value, '0.10')
+  assert.equal(detail.summary, '监测采集记录')
+  assert.equal(localCitationDetail(packet, { kind: 'observation', observation_id: 'not-returned' }), null)
+})
+
+test('realtime monitor labels preserve waiting error and pause states without claiming an external connection', async () => {
+  const { sessionMonitorLabel } = await import('../src/workspace.mjs')
+  assert.equal(sessionMonitorLabel({ mode: 'historical_replay' }), '')
+  assert.equal(sessionMonitorLabel({ mode: 'realtime', state: 'running' }), '等待后台监测')
+  assert.equal(sessionMonitorLabel({ mode: 'realtime', monitor: { state: 'running' } }), '后台监测：运行中')
+  assert.equal(sessionMonitorLabel({ mode: 'realtime', monitor: { state: 'error' } }), '后台监测：异常')
+  assert.equal(sessionMonitorLabel({ mode: 'realtime', monitor: { state: 'paused' } }), '后台监测：已暂停')
+  assert.equal(sessionMonitorLabel({ mode: 'realtime', state: 'running', monitor: { state: 'disabled', enabled: false } }), '后台监测：已停用')
+})
+
 test('ingestion status distinguishes enabled configuration from received data', async () => {
   const { connectorStatusLabel, batchStatusLabel } = await import('../src/ingestion.mjs')
   assert.equal(connectorStatusLabel({ enabled: false }), '未启用')

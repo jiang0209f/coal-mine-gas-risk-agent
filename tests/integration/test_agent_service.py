@@ -125,6 +125,126 @@ def test_model_and_point_ids_are_available_without_private_paths_or_other_source
     assert "PRIVATE_MODEL_PATH" not in system and "PRIVATE_INPUT_PATH" not in system and "FOREIGN_MODEL" not in system
 
 
+def test_verified_selected_point_is_system_context_and_updates_on_continuation(agent_parts):
+    _, _, context, services, _ = agent_parts
+    services["data"].list_points = lambda actor, source_id: [
+        dict(point_id=point, source_id="source", quantity="methane", unit="%") for point in ("point-a", "point-b")]
+    service, adapter = configured_service(agent_parts, [reply("已查询A。"), reply("已查询B。")])
+    question = "说明当前点位绑定"
+    first = service.chat(context, {"question": question, "selected_point_id": "point-a"})
+    first_context = json.loads(adapter.requests[0]["messages"][0]["content"].split("\n执行上下文：", 1)[1])
+    assert first_context["selected_point_id"] == "point-a"
+    assert adapter.requests[0]["messages"][-1]["content"] == question
+    continued = service.chat(context, {"task_id": first["task_id"], "answer": "继续查看当前点位", "selected_point_id": "point-b"})
+    current_context = json.loads(adapter.requests[1]["messages"][0]["content"].split("\n执行上下文：", 1)[1])
+    assert current_context["selected_point_id"] == "point-b"
+    assert adapter.requests[1]["messages"][-1]["content"] == "继续查看当前点位"
+    assert continued["selected_point_id"] == "point-b"
+
+
+def test_unbound_chat_does_not_invent_a_selected_point(agent_parts):
+    service, adapter = configured_service(agent_parts, [reply("来源查询完成。")])
+    task = service.chat(agent_parts[2], "查看当前来源")
+    metadata = json.loads(adapter.requests[0]["messages"][0]["content"].split("\n执行上下文：", 1)[1])
+    assert "selected_point_id" not in metadata and "selected_point_id" not in task
+
+
+def test_business_answer_without_tool_gets_one_forced_lookup_before_completion(agent_parts):
+    service, adapter = configured_service(agent_parts, [
+        reply("编造资料 reference_id=fabricated-ref"),
+        reply(None, [call("search_documents", {"query": "瓦斯"})]),
+        reply("查询到已审核片段，reference_id=ref1。"),
+    ])
+    task = service.chat(agent_parts[2], "检索已审核资料：瓦斯")
+    assert task["state"] == "completed" and len(adapter.requests) == 3
+    assert adapter.requests[1]["tool_choice"] == {"type": "function", "function": {"name": "search_documents"}}
+    assert task["result_cards"] and task["evidence_refs"]
+    assert "fabricated-ref" not in task["final_text"]
+    assert all("fabricated-ref" not in str(message) for request in adapter.requests for message in request["messages"])
+
+
+@pytest.mark.parametrize("question,required", [
+    ("查询最近一小时监测数据", "query_series"),
+    ("检索现行规程条文", "search_documents"),
+    ("当前有哪些预警事件", "query_events"),
+    ("解释事件依据", "get_event_evidence"),
+    ("查看处置进展", "get_case"),
+    ("运行指定模型预测", "run_prediction"),
+])
+def test_unverified_business_text_is_not_displayed_when_forced_lookup_is_ignored(agent_parts, question, required):
+    service, adapter = configured_service(agent_parts, [reply("FABRICATED_ANSWER"), reply("FABRICATED_AGAIN")])
+    task = service.chat(agent_parts[2], question)
+    assert task["state"] == "partial" and task["error_code"] == "required_tool_result_missing"
+    assert required + "_result" in task["missing_fields"]
+    assert len(adapter.requests) == 2 and adapter.requests[1]["tool_choice"]["function"]["name"] == required
+    assert "FABRICATED" not in task["final_text"]
+
+
+def test_wrong_tool_does_not_satisfy_a_document_query(agent_parts):
+    service, adapter = configured_service(agent_parts, [
+        reply(None, [call("query_events", {})]), reply("编造资料。"),
+        reply(None, [call("search_documents", {"query": "瓦斯"}, "docs")]), reply("资料 reference_id=ref1。"),
+    ])
+    task = service.chat(agent_parts[2], "检索资料：瓦斯")
+    assert task["state"] == "completed" and [step["name"] for step in task["tool_calls"]] == ["query_events", "search_documents"]
+    assert adapter.requests[2]["tool_choice"]["function"]["name"] == "search_documents"
+
+
+@pytest.mark.parametrize("citation", ["reference_id=not-retrieved", "reference_id 为 `not-retrieved`", '"reference_id":"not-retrieved"', "REFERENCE_ID=not-retrieved"])
+def test_unknown_document_reference_is_rejected_and_real_cards_are_retained(agent_parts, citation):
+    service, adapter = configured_service(agent_parts, [
+        reply(None, [call("search_documents", {"query": "瓦斯"})]), reply("FABRICATED_TITLE " + citation),
+    ])
+    task = service.chat(agent_parts[2], "检索资料：瓦斯")
+    assert task["state"] == "partial" and task["error_code"] == "unverified_reference_id"
+    assert "verified_reference_ids" in task["missing_fields"]
+    assert "FABRICATED" not in task["final_text"] and "not-retrieved" not in task["final_text"]
+    assert task["result_cards"] and any(ref.get("reference_id") == "ref1" for ref in task["evidence_refs"])
+    assert len(adapter.requests) == 2
+
+
+@pytest.mark.parametrize("identifier,citation", [
+    ("ref1", "reference_id=ref1."),
+    ("ref1", "REFERENCE_ID=ref1"),
+    ("doc:2026版:abc123", "reference_id=`doc:2026版:abc123`。"),
+])
+def test_literal_returned_reference_ids_accept_sentence_punctuation_and_unicode_versions(agent_parts, identifier, citation):
+    agent_parts[3]["knowledge"].search_documents = lambda **kwargs: [
+        {"reference_id": identifier, "text": "已审核合成片段。", "locator": {"page": 1}}]
+    service, _ = configured_service(agent_parts, [
+        reply(None, [call("search_documents", {"query": "瓦斯"})]), reply(citation),
+    ])
+    task = service.chat(agent_parts[2], "检索资料：瓦斯")
+    assert task["state"] == "completed" and task["final_text"] == citation
+
+
+def test_previous_turn_lookup_cannot_validate_a_new_document_question(agent_parts):
+    service, adapter = configured_service(agent_parts, [
+        reply(None, [call("search_documents", {"query": "瓦斯"})]), reply("旧资料 reference_id=ref1。"),
+        reply("FABRICATED_NEW_DATA reference_id=ref1"), reply("FABRICATED_NEW_DATA reference_id=ref1"),
+    ])
+    context = agent_parts[2]
+    first = service.chat(context, "检索资料：瓦斯")
+    second = service.chat(context, {"task_id": first["task_id"], "answer": "检索资料：通风"})
+    assert second["state"] == "partial" and second["error_code"] == "required_tool_result_missing"
+    assert len(adapter.requests) == 4 and "FABRICATED" not in second["final_text"]
+
+
+def test_forced_lookup_does_not_extend_the_existing_five_round_budget(agent_parts):
+    service, adapter = configured_service(agent_parts, [
+        *[reply(None, [call("query_events", {}, f"events-{index}")]) for index in range(4)], reply("FABRICATED"),
+    ])
+    task = service.chat(agent_parts[2], "检索资料：瓦斯")
+    assert task["state"] == "partial" and task["error_code"] == "required_tool_result_missing"
+    assert len(adapter.requests) == 5 and "FABRICATED" not in task["final_text"]
+
+
+def test_nonbusiness_greeting_does_not_force_a_lookup(agent_parts):
+    service, adapter = configured_service(agent_parts, [reply("你好。")])
+    task = service.chat(agent_parts[2], "你好")
+    assert task["state"] == "completed" and len(adapter.requests) == 1 and not task["tool_calls"]
+
+
 def test_no_key_uses_actual_event_template_without_constructing_adapter(agent_parts):
     store, actor, context, services, calls = agent_parts
 

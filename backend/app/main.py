@@ -20,6 +20,7 @@ def build_services(configuration):
     from app.services.data.ingestion import IngestionService
     from app.services.sessions.service import SessionsService
     from app.services.sessions.runner import SessionRunner
+    from app.services.sessions.realtime_worker import RealtimeMonitor
     from app.services.prediction.service import PredictionService
     from app.services.prediction.packages import ModelPackagesService
     from app.services.prediction.trained import TrainedModelsPipeline
@@ -36,7 +37,8 @@ def build_services(configuration):
     runtime = configuration.runtime_dir.resolve()
     runtime.mkdir(parents=True, exist_ok=True)
     store = Store(configuration.database_url or f"sqlite+pysqlite:///{(runtime / 'app.db').as_posix()}")
-    s = {"store": store, "auth": AuthService(store), "sessions": SessionsService(store)}
+    s = {"store": store, "auth": AuthService(store),
+         "sessions": SessionsService(store, realtime_monitor_enabled=configuration.realtime_monitor_enabled)}
     s["data"] = DataService(store, runtime / "imports")
     s["ingestion"] = IngestionService(store, s["data"])
     model_runtime = ModelRuntime(configuration.model_catalog_path)
@@ -50,8 +52,10 @@ def build_services(configuration):
     s["evaluation"] = EvaluationService(store)
     s["agent"] = AgentService(store, s, configuration)
     s["event_briefs"] = EventBriefsService(store, s, configuration)
+    s["agent"].recover_interrupted()
     s["event_briefs"].recover_interrupted()
     s["runner"] = SessionRunner(s)
+    s["realtime_monitor"] = RealtimeMonitor(s)
     s["evaluation_collector"] = SessionEvaluationCollector(store, s)
     return s
 
@@ -63,19 +67,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.settings = configuration
         application.state.services = build_services(configuration)
         from app.services.data.ingestion_worker import run_ingestion_worker
+        from app.services.sessions.realtime_worker import run_realtime_monitor
         stop = asyncio.Event()
         status = {"enabled": configuration.ingestion_worker_enabled,
                   "state": "starting" if configuration.ingestion_worker_enabled else "disabled"}
         application.state.ingestion_worker_status = status
         worker = (asyncio.create_task(run_ingestion_worker(application.state.services["ingestion"], stop, status))
                   if configuration.ingestion_worker_enabled else None)
+        monitor_status = {"enabled": configuration.realtime_monitor_enabled,
+                          "state": "starting" if configuration.realtime_monitor_enabled else "disabled"}
+        application.state.realtime_monitor_status = monitor_status
+        monitor = (asyncio.create_task(run_realtime_monitor(application.state.services["realtime_monitor"],
+                       stop, monitor_status, configuration.realtime_monitor_interval_seconds))
+                   if configuration.realtime_monitor_enabled else None)
         try:
             yield
         finally:
             stop.set()
             try:
-                if worker is not None:
-                    await worker
+                jobs = [job for job in (worker, monitor) if job is not None]
+                if jobs:
+                    await asyncio.gather(*jobs, return_exceptions=True)
             finally:
                 application.state.services["store"].close()
 

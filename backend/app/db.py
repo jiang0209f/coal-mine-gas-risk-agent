@@ -52,6 +52,7 @@ observations = Table(
     Column("row_number", Integer, nullable=False),
     Column("import_id", String, nullable=False),
     Index("ix_observations_point_event_available", "point_id", "event_time", "available_at"),
+    Index("ix_observations_point_available_event", "point_id", "available_at", "event_time"),
 )
 
 
@@ -69,6 +70,9 @@ class Store:
         self.engine = create_engine(database_url, **options)
         try:
             metadata.create_all(self.engine)
+            # create_all skips indexes of an already existing table.
+            next(index for index in observations.indexes
+                 if index.name == "ix_observations_point_available_event").create(self.engine, checkfirst=True)
         except Exception:
             self.engine.dispose()
             raise

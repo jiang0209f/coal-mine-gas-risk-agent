@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from math import isfinite
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.db import Store, observations as observation_table
 from app.schemas.common import Actor, DomainError, ExecutionContext, now_utc, utcstr
@@ -139,11 +139,14 @@ class AlertsService:
                 if session["source_id"] != context.source_id:
                     raise DomainError("会话与数据源不匹配", code="forbidden", status_code=403)
                 start_at = min(start_at, _time(session["start_as_of"]))
+        return self._range_rows(context, point_id, start_at, context.as_of, connection)
+
+    def _range_rows(self, context, point_id, start_at, end_at, connection):
         if self.data_service is not None:
             rows, offset = [], 0
             while True:
                 result = self.data_service.query_series(context, point_id, start_at,
-                    context.as_of + timedelta(microseconds=1), limit=100000, offset=offset)
+                    end_at + timedelta(microseconds=1), limit=100000, offset=offset)
                 rows.extend(result["rows"])
                 offset += len(result["rows"])
                 if offset >= result["total"]:
@@ -154,9 +157,180 @@ class AlertsService:
             observation_table.c.source_id == context.source_id,
             observation_table.c.point_id == point_id,
             observation_table.c.event_time >= utcstr(start_at),
-            observation_table.c.event_time <= utcstr(context.as_of),
+            observation_table.c.event_time <= utcstr(end_at),
             observation_table.c.available_at <= utcstr(context.as_of),
         )).mappings()]
+
+    @staticmethod
+    def _late_segments(rows, rules):
+        """Rebuild an affected interval without changing previously saved events."""
+        segments, active, previous_time = [], None, None
+        tail = {"coverage_since": None, "high_since": None, "high_refs": []}
+        reset_coverage = False
+        for row in sorted(rows, key=lambda item: (item["event_time"], item.get("id", item.get("observation_id", "")))):
+            moment = utcstr(_time(row["event_time"]))
+            valid = _numeric(row.get("value")) and not ({"invalid", "invalid_value"} & set(row.get("quality_flags", [])))
+            gap = (_time(moment) - _time(previous_time)).total_seconds() if previous_time else None
+            if not valid or gap is None or gap > rules["max_observation_gap_seconds"]:
+                tail.update(coverage_since=moment if valid else None, high_since=None, high_refs=[])
+                reset_coverage = reset_coverage or previous_time is not None
+            previous_time = moment
+            if not valid:
+                continue
+            tail["coverage_since"] = tail["coverage_since"] or moment
+            reference = AlertsService._reference(row)
+            if row["value"] >= rules["observed_orange_threshold"]:
+                tail["high_since"] = tail["high_since"] or moment
+                tail["high_refs"].append(reference)
+            else:
+                tail.update(high_since=None, high_refs=[])
+            duration = (_time(moment) - _time(tail["high_since"])).total_seconds() if tail["high_since"] else 0
+            level = ("red" if row["value"] >= rules["observed_red_threshold"] else "orange"
+                     if duration >= rules["orange_duration_seconds"] else None)
+            if level is None and active is None:
+                continue
+            if active is None:
+                active = {"start_at": tail["high_since"] if level == "orange" else moment,
+                          "event_time": moment, "end_at": None, "alert_level": level,
+                          "evidence_refs": [], "quality_flags": []}
+            if level and _RANK[level] > _RANK[active["alert_level"]]:
+                active["alert_level"] = level
+            active["event_time"] = moment
+            for ref in tail["high_refs"] if level else [reference]:
+                if ref not in active["evidence_refs"]:
+                    active["evidence_refs"].append(ref)
+            active["quality_flags"] = sorted(set(active["quality_flags"]) | set(row.get("quality_flags", [])))
+            if level is None:
+                active["end_at"] = moment
+                segments.append(active)
+                active = None
+        if active:
+            segments.append(active)
+        merged = []
+        for segment in sorted(segments, key=lambda entry: (entry["start_at"], entry["event_time"])):
+            # An immediate red excursion and a later five-minute orange trigger
+            # can share the same continuous high-value evidence interval.
+            if merged and segment["start_at"] < (merged[-1]["end_at"] or merged[-1]["event_time"]):
+                previous = merged[-1]
+                previous["alert_level"] = max((previous["alert_level"], segment["alert_level"]), key=_RANK.get)
+                previous["event_time"] = max(previous["event_time"], segment["event_time"])
+                previous["end_at"] = max(previous["end_at"], segment["end_at"]) if previous["end_at"] and segment["end_at"] else None
+                previous["evidence_refs"] += [ref for ref in segment["evidence_refs"] if ref not in previous["evidence_refs"]]
+                previous["evidence_refs"].sort(key=lambda ref: (ref["event_time"], ref.get("observation_id", "")))
+                previous["quality_flags"] = sorted(set(previous["quality_flags"]) | set(segment["quality_flags"]))
+            else:
+                merged.append(segment)
+        return merged, tail, reset_coverage
+
+    def _save_late_segment(self, context, point_id, segment, previous, connection, late_refs=None):
+        if previous is None:
+            return self._write_event(context, point_id, "observed_exceedance", segment["alert_level"],
+                segment["event_time"], segment["start_at"], segment["evidence_refs"],
+                segment["quality_flags"], ended=segment["end_at"] is not None, connection=connection)
+        event = {**previous, **segment}
+        event["quality_flags"] = sorted(set(previous["quality_flags"]) | set(segment["quality_flags"]))
+        event["event_state"] = ("ended" if segment["end_at"] is not None else "upgraded"
+            if _RANK[segment["alert_level"]] > _RANK[previous["alert_level"]] else "new"
+            if previous["event_state"] == "ended" else previous["event_state"])
+        if late_refs is not None:
+            event["evidence_status"] = "insufficient_after_late_arrival"
+            event["late_observation_refs"] = list(previous.get("late_observation_refs", []))
+            for ref in late_refs:
+                if ref not in event["late_observation_refs"]:
+                    event["late_observation_refs"].append(ref)
+            if event != previous:
+                event["evidence_reassessment"] = {"previous_event_revision": previous["event_revision"],
+                    "as_of": utcstr(context.as_of), "reason": "continuous_high_values_interrupted"}
+        elif previous.get("evidence_status") == "insufficient_after_late_arrival":
+            event["evidence_status"] = "supported_after_late_arrival"
+        if event == previous:
+            return previous
+        event.update(event_revision=previous["event_revision"] + 1, decision_as_of=utcstr(context.as_of),
+                     revision_as_of=utcstr(context.as_of), updated_at=utcstr(now_utc()))
+        self.store.put("event", event["event_id"], event, connection)
+        self.store.put("event_revision", f"{event['event_id']}@{event['event_revision']:08d}", event, connection)
+        return event
+
+    def _reassess_late(self, context, point_id, state, rules, connection):
+        if not state.get("last_context_as_of") or not state.get("last_event_time"):
+            return []
+        cursor = _time(state["last_event_time"])
+        # Inclusive boundary also handles a new record committed at an identical cutoff.
+        late = [dict(row) for row in connection.execute(select(observation_table).where(
+            observation_table.c.point_id == point_id, observation_table.c.source_id == context.source_id,
+            observation_table.c.available_at >= state["last_context_as_of"],
+            observation_table.c.available_at <= utcstr(context.as_of),
+            observation_table.c.event_time < utcstr(cursor))).mappings()]
+        if not late:
+            return []
+        existing = [event for event in self.store.list("event", connection)
+                    if event["session_id"] == context.session_id and event["source_id"] == context.source_id
+                    and event["point_id"] == point_id and event["event_type"] == "observed_exceedance"]
+        pad = timedelta(seconds=rules["orange_duration_seconds"])
+        windows = []
+        for row in sorted(late, key=lambda item: item["event_time"]):
+            start, end = _time(row["event_time"]) - pad, min(cursor, _time(row["event_time"]) + pad)
+            if windows and start <= windows[-1][1]:
+                windows[-1] = (windows[-1][0], max(end, windows[-1][1]))
+            else:
+                windows.append((start, end))
+        intervals = []
+        for start, end in windows:
+            for event in existing:
+                if _time(event["start_at"]) <= end and _time(event.get("end_at") or event["event_time"]) >= start:
+                    start = min(start, _time(event["start_at"]))
+                    end = min(cursor, max(end, _time(event.get("end_at") or event["event_time"])))
+            # Read through the next ending sample, not just the trigger window.
+            ending = connection.execute(select(observation_table.c.event_time).where(
+                observation_table.c.point_id == point_id, observation_table.c.source_id == context.source_id,
+                observation_table.c.event_time > utcstr(end), observation_table.c.event_time <= utcstr(cursor),
+                observation_table.c.available_at <= utcstr(context.as_of),
+                or_(observation_table.c.value < rules["observed_orange_threshold"], observation_table.c.value.is_(None)))
+                .order_by(observation_table.c.event_time).limit(1)).scalar_one_or_none()
+            end = _time(ending) if ending else cursor
+            if intervals and start <= intervals[-1][1]:
+                intervals[-1] = (min(start, intervals[-1][0]), max(end, intervals[-1][1]))
+            else:
+                intervals.append((start, end))
+        refs, used = [], set()
+        for start, end in intervals:
+            rows = self._range_rows(context, point_id, start, end, connection)
+            segments, tail, reset = self._late_segments(rows, rules)
+            current = None
+            for segment in segments:
+                ids = {ref.get("observation_id") for ref in segment["evidence_refs"]}
+                candidates = [event for event in existing if event["event_id"] not in used and
+                    (ids & {ref.get("observation_id") for ref in event["evidence_refs"]} or
+                     event["start_at"] <= (segment["end_at"] or segment["event_time"]) and
+                     (event.get("end_at") or event["event_time"]) >= segment["start_at"])]
+                previous = min(candidates, key=lambda event: (event["start_at"], event["event_id"])) if candidates else None
+                saved = self._save_late_segment(context, point_id, segment, previous, connection)
+                used.add(saved["event_id"])
+                if previous is None or previous["event_revision"] != saved["event_revision"]:
+                    refs.append({"event_id": saved["event_id"], "event_revision": saved["event_revision"]})
+                if saved["end_at"] is None:
+                    current = saved["event_id"]
+            for event in existing:
+                if event["event_id"] in used or event["alert_level"] != "orange":
+                    continue
+                lows = [row for row in late if event["start_at"] <= row["event_time"] <=
+                        (event.get("end_at") or event["event_time"]) and _numeric(row.get("value"))
+                        and not ({"invalid", "invalid_value"} & set(row.get("quality_flags", [])))
+                        and row["value"] < rules["observed_orange_threshold"]]
+                if not lows:
+                    continue
+                closed = {name: event[name] for name in ("start_at", "event_time", "end_at", "alert_level", "evidence_refs", "quality_flags")}
+                closed["event_time"] = closed["end_at"] = min(row["event_time"] for row in lows)
+                saved = self._save_late_segment(context, point_id, closed, event, connection,
+                    late_refs=[self._reference(row) for row in lows])
+                used.add(event["event_id"])
+                if saved["event_revision"] != event["event_revision"]:
+                    refs.append({"event_id": saved["event_id"], "event_revision": saved["event_revision"]})
+            if end == cursor:
+                if not reset and state.get("coverage_since") and tail["coverage_since"]:
+                    tail["coverage_since"] = min(state["coverage_since"], tail["coverage_since"])
+                state.update(tail, active_event_id=current)
+        return refs
 
     def evaluate_observed(self, context, point_id, observations=None, rule_version=_VERSION):
         source, _ = self._scope(context, point_id)
@@ -171,7 +345,7 @@ class AlertsService:
                     and row.get("point_id", point_id) == point_id
                     and _time(row["event_time"]) <= context.as_of
                     and _time(row.get("available_at", row["event_time"])) <= context.as_of]
-            event_refs = []
+            event_refs = self._reassess_late(context, point_id, state, rules, connection) if observations is None else []
             by_observation = {ref["observation_id"]: event
                 for event in self.store.list("event", connection=connection)
                 if event["session_id"] == context.session_id and event["source_id"] == context.source_id

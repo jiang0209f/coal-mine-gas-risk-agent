@@ -1,7 +1,10 @@
 """会话状态与服务端执行时钟。"""
 
+from copy import deepcopy
+from contextlib import contextmanager
 from datetime import datetime
 from math import isfinite
+from threading import Lock, RLock
 from uuid import uuid4
 
 from sqlalchemy.engine import Connection
@@ -17,19 +20,32 @@ _ACTIONS = ("pause", "resume", "set_speed", "stop", "advance")
 
 
 class SessionsService:
-    def __init__(self, store: Store) -> None:
+    def __init__(self, store: Store, *, realtime_monitor_enabled=True) -> None:
         self.store = store
+        self.realtime_monitor_enabled = realtime_monitor_enabled
+        self._execution_locks = {}
+        self._execution_locks_guard = Lock()
+
+    @contextmanager
+    def execution_lock(self, id):
+        """Serialize a session's tick, manual forecast, actions and model choice."""
+        with self._execution_locks_guard:
+            lock = self._execution_locks.setdefault(id, RLock())
+        with lock:
+            yield
 
     def _record_action(self, actor, session, action, before, connection):
         session["action_sequence"] = session.get("action_sequence", 0) + 1
         fields = ("as_of", "state", "speed")
+        if action == "set_prediction_model":
+            fields += ("prediction_models",)
         record = {
             "action_id": str(uuid4()), "session_id": session["session_id"],
             "source_id": session["source_id"], "face_id": session["face_id"],
             "action_type": action, "sequence": session["action_sequence"],
             "actor_id": actor.user_id, "occurred_at": session["updated_at"],
             "data_as_of": session["as_of"], "before": before,
-            "after": {key: session[key] for key in fields},
+            "after": {key: deepcopy(session[key]) for key in fields},
         }
         self.store.put("session_action", record["action_id"], record, connection)
 
@@ -75,10 +91,12 @@ class SessionsService:
         session_speed = self._speed(speed)
         with self.store.transaction() as connection:
             source = self._source(actor, source_id, connection)
+            prediction_models = {}
             if parent_session_id is not None:
                 parent = self._session(actor, parent_session_id, connection)
                 if parent["source_id"] != source_id:
                     raise DomainError("关联回放必须使用同一数据源", code="forbidden", status_code=403)
+                prediction_models = deepcopy(parent.get("prediction_models", {}))
             created_at = utcstr(now_utc())
             session = {
                 "session_id": str(uuid4()),
@@ -91,6 +109,7 @@ class SessionsService:
                 "config_version": config_version,
                 "speed": session_speed,
                 "parent_session_id": parent_session_id,
+                "prediction_models": prediction_models,
                 "created_at": created_at,
                 "updated_at": created_at,
             }
@@ -100,7 +119,18 @@ class SessionsService:
     def get_session(self, actor: Actor, id: str) -> dict:
         actor.require_role(*_ROLES)
         with self.store.transaction() as connection:
-            return self._session(actor, id, connection)
+            return self._public_session(self._session(actor, id, connection), connection)
+
+    def _public_session(self, session, connection):
+        if session["mode"] != "realtime":
+            return session
+        monitor = {**(self.store.get("session_monitor", session["session_id"], connection) or {"state": "starting"}),
+                   "enabled": self.realtime_monitor_enabled}
+        if not self.realtime_monitor_enabled:
+            monitor["state"] = "disabled"
+        if session["state"] != "running":
+            monitor = {**monitor, "state": "stopped" if session["state"] == "ended" else "paused"}
+        return {**session, "monitor": monitor}
 
     def get_context(self, actor: Actor, id: str) -> ExecutionContext:
         session = self.get_session(actor, id)
@@ -113,6 +143,46 @@ class SessionsService:
             actor=actor,
         )
 
+    def set_prediction_model(self, actor, id, point_id, model_id, version):
+        with self.execution_lock(id):
+            return self._set_prediction_model(actor, id, point_id, model_id, version)
+
+    def _set_prediction_model(self, actor, id, point_id, model_id, version):
+        """Persist an explicit point/model version without changing global defaults."""
+        actor.require_role(*_ROLES)
+        if actor.is_system:
+            raise DomainError("系统身份不能更改会话模型配置", code="forbidden", status_code=403)
+        if any(not isinstance(value, str) or not value.strip() for value in (point_id, model_id, version)):
+            raise DomainError("模型选择需要测点、模型编号和版本")
+        with self.store.transaction() as connection:
+            session = self._session(actor, id, connection)
+            if session["state"] == "ended":
+                raise DomainError("会话已结束", code="conflict", status_code=409)
+            point = self.store.get("point", point_id, connection)
+            if point is None:
+                raise DomainError("点位不存在", code="not_found", status_code=404)
+            if point["source_id"] != session["source_id"]:
+                raise DomainError("点位与会话来源不一致", code="forbidden", status_code=403)
+            if point.get("quantity") != "methane":
+                raise DomainError("会话自动预测需要甲烷测点")
+            model = self.store.get("model", f"{model_id}:{version}", connection)
+            if model is None or model.get("model_id") != model_id or model.get("version") != version:
+                raise DomainError("模型版本不存在", code="not_found", status_code=404)
+            source = self._source(actor, session["source_id"], connection)
+            if (model["source_id"] != session["source_id"] or model["face_id"] != source["face_id"]
+                    or point_id not in model["point_ids"]):
+                raise DomainError("模型不属于当前来源或不适用该测点", code="forbidden", status_code=403)
+            before = {key: deepcopy(session[key]) for key in ("as_of", "state", "speed")}
+            before["prediction_models"] = deepcopy(session.get("prediction_models", {}))
+            session["prediction_models"] = deepcopy(before["prediction_models"])
+            binding = {"model_id": model_id, "version": version}
+            if session["prediction_models"].get(point_id) == binding:
+                return session
+            session["prediction_models"][point_id] = binding
+            session["updated_at"] = utcstr(now_utc())
+            self._record_action(actor, session, "set_prediction_model", before, connection)
+            return self.store.put("session", id, session, connection=connection)
+
     def apply_action(
         self,
         actor: Actor,
@@ -121,6 +191,10 @@ class SessionsService:
         speed: float | None = None,
         target_as_of: datetime | None = None,
     ) -> dict:
+        with self.execution_lock(id):
+            return self._apply_action(actor, id, action, speed, target_as_of)
+
+    def _apply_action(self, actor, id, action, speed, target_as_of):
         actor.require_role(*_ROLES)
         with self.store.transaction() as connection:
             session = self._session(actor, id, connection)
@@ -154,5 +228,5 @@ class SessionsService:
             for session in sessions:
                 source = self.store.get("source", session["source_id"], connection=connection)
                 if source is not None and source["face_id"] in actor.face_ids:
-                    visible.append(session)
+                    visible.append(self._public_session(session, connection))
             return visible

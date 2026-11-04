@@ -49,6 +49,8 @@
 | 监测序列 | source_id、point_id、查询区间、as_of | event_time、available_at、值、单位、质量标志、文件/行引用 |
 | 预测运行 | session_id、point_id、model_id/version、闭合窗口 | run_id、状态、预测区间、输出语义、模型版本、input_refs |
 | 事件快照 | 来源、测点、规则及观测/预测依据 | event_id、event_revision、revision_as_of、event_type、alert_level、event_state |
+| 补传重评 | 新可用观测及受影响时间窗、既有事件修订 | 复用事件编号的新修订、late_observation_refs、evidence_status、重评原因及原值片段 |
+| 会话模型选择 | 当前来源测点、明确model_id/version | prediction_models点位绑定、动作审计；关联重放继承配置 |
 | 候选溯源 | 事件快照、适用模型、目标观测、六通道窗口 | run_id、candidate_causes、cluster_probabilities、model_version、target_time、input_as_of、input_refs、reused |
 | 建议版本 | 当前事件、已审核 reference_ids | advice_id、version、引用片段及定位、data_as_of、operation_context |
 | 人工动作 | 当前事件、action_type、内容；审核/执行关联建议版本 | actor_id、occurred_at、data_as_of、阶段、动作编号 |
@@ -67,6 +69,8 @@ flowchart TD
   IA --> IQ[服务端持久队列]
   IQ --> ID[data标准观测入库与去重]
   ID --> D
+  ID --> RT[服务端实时会话监测]
+  RT --> S
   UI[工作台选择来源和会话] --> S[sessions 推进时钟]
   S --> D[data 查询当前可见观测]
   S --> P[prediction 预测]
@@ -122,7 +126,9 @@ flowchart TD
 | 查阅规程并起草建议 | get_event_evidence → search_documents → draft_advice | 可打开的规程片段、建议版本和审核入口 |
 | 查询处置进展 | get_case | 当前阶段、已审核建议、执行反馈及待办 |
 
-主动研判任务已实现：事件提交成功后，sessions 向 agent 提交异步任务；新事件和等级升级各对应冻结修订。事件和等级先显示，纯合成隔离来源随后生成DeepSeek简报，真实来源保留本机依据。普通对话和主动简报共用 `EVENT_BRIEF_ALLOWED_SOURCE_IDS`，生产保持空列表；真实来源不进入云端，本地大模型尚未部署。
+主动研判任务已实现：事件提交成功后，sessions 向 agent 提交异步任务；新事件和等级升级各对应冻结修订。事件和等级先显示，纯合成隔离来源随后生成DeepSeek简报，真实来源保留本机依据。普通对话和主动简报共用 `EVENT_BRIEF_ALLOWED_SOURCE_IDS`，生产保持空列表；真实来源通过本机业务工具查询，DeepSeek API处理合成隔离来源。
+
+页面问答绑定当前测点。真实来源通过本机业务工具完成明确的监测、事件依据、已审核资料、处置和指定模型查询，模糊参数返回待选择；DeepSeek继续作为大模型API处理纯合成隔离来源。普通聊天在重启时明确标记中断，已完成结果保留；重新提交由用户触发。
 
 简报保存事件编号/版本、会话、来源、as_of、模型/规则版本、证据引用、任务编号和生成状态。相同键复用结果；失败时保留结构化事件信息并支持人工重试。任务通过现有证据入口读取候选溯源，沿用其缓存规则。
 
@@ -173,6 +179,8 @@ flowchart TD
 | 五：现场接口（通用接入已实现） | 标准/映射JSON、来源/测点绑定、采集端缓存、服务端持久队列、重试去重与状态页面 | 已验证实际本机HTTP断线/重启/丢收据补传和并发去重；实际监测系统协议在接口资料提供后适配；现场会话受服务器时钟约束 |
 
 现场通用模块的接口、职责和操作见[现场接入说明](field-ingestion.md)。持久收据`durable=true`表示服务端已保管批次，`completed`表示已原子入库；两端失败均保留可回查状态。测值时间保留源时间，补传可用时间按实际入库记录。接入停用仍可持久接收，重新启用后按顺序补传，冲突批次保留待核。
+
+服务端现已独立推进运行中的实时会话，浏览器关闭后继续监测；暂停/停止由同会话执行锁保证，重启恢复扫描。专业预测按会话绑定版本运行，完成后衔接预测预警和简报。补传按到达时间增量触发局部重评，保留旧修订与人工记录，判据失效时追加待核原因。已选测点问答、任务重启恢复及10份知识材料正式入库的操作见[补传预警与连续监测](reliability-and-qa.md)。
 
 实际监测系统适配需要：接口协议与认证方式、访问网络、字段及响应样例、点位编号和单位、采样/上传周期、增量游标及上游历史补查能力。本轮本机缓存向回环HTTP发送，真实数据保持本机；上游停采期间的完整恢复取决于监测系统保存与补查能力。正式规则与建议发布还需核对矿井有效规则、作业规程版本和审核权限；现有作业规程先进入资料审核流程。
 

@@ -21,6 +21,7 @@ const otherSource = { source_id: 'qa-other-source', name: '第二来源（测试
 const point = { point_id: 'qa-T0', source_id: source.source_id, face_id: source.face_id, name: 'T0（界面验收）', quantity: 'methane', unit: '%CH4', unit_status: 'inferred' }
 const wind = { point_id: 'qa-wind', source_id: source.source_id, face_id: source.face_id, name: '风速（界面验收）', quantity: 'wind_speed', unit: 'source_native', unit_status: 'inferred' }
 const otherPoint = { ...point, point_id: 'qa-other-T0', source_id: otherSource.source_id, name: '第二来源T0' }
+const secondMethane = { ...point, point_id: 'qa-T1', name: 'T1（界面验收）' }
 const modelCatalog = [
   { model_id: 'QA离线基线', version: 'test', model_type: 'baseline', default_eligible: true, point_ids: [point.point_id], input_window: 2, horizon_seconds: 3600, aggregation_seconds: 300 },
   { model_id: 'QA专业预测', version: 'trained-test-v1', model_type: 'professional', deployment_stage: 'experimental', default_eligible: false, point_ids: [point.point_id], input_window: 90, horizon_seconds: 3600, aggregation_seconds: 300 },
@@ -30,12 +31,14 @@ let role, session, actions, advice, calls, pendingChat, taskState, attributionSt
 let briefStatus, briefAttempt, briefAsOf, briefRevision, selectedEventRevision, generateOnTick, eventPresent, nextBriefGate
 let evaluationReports, nextMetricGate
 let ingestionConnectors, ingestionBatches, nextIngestionGate, ingestionWorker
+let extraPointEnabled, forecastAlertEnabled, forecastAlert, lateEvidence, nextSessionGate
 function reset(value) {
   role = value; session = null; actions = []; advice = []; calls = []; documents = []; nextDocumentGate = null; pendingChat = false; taskState = 'running'; attributionState = 'completed'; forecastRuns = []; savedSessions = new Map(); nextEvidenceGate = null
   briefStatus = 'not_started'; briefAttempt = 0; briefAsOf = null; briefRevision = 1; selectedEventRevision = 1; generateOnTick = false; eventPresent = true; nextBriefGate = null
   evaluationReports = []; nextMetricGate = null
   ingestionConnectors = []; ingestionBatches = {}; nextIngestionGate = null
   ingestionWorker = { enabled: true, state: 'running', last_run_at: '2026-11-04T12:00:02Z', last_success_at: '2026-11-04T12:00:02Z' }
+  extraPointEnabled = false; forecastAlertEnabled = false; forecastAlert = null; lateEvidence = false; nextSessionGate = null
 }
 function connector(id = 'qa-connector', selectedSource = source) {
   return { connector_id: id, name: selectedSource === source ? '现场监测接入' : '第二来源接入', source_id: selectedSource.source_id, face_id: source.face_id,
@@ -68,7 +71,10 @@ function forecast(modelId = modelCatalog[0].model_id, version = modelCatalog[0].
 function event() {
   return { event_id: 'qa-event', session_id: session.session_id, source_id: session.source_id, point_id: point.point_id, event_revision: selectedEventRevision,
     start_at: new Date(Date.parse(session.as_of) - 60000).toISOString(), event_type: 'observed_exceedance',
-    alert_level: 'red', quality_flags: ['suspected_calibration'] }
+    alert_level: lateEvidence ? 'orange' : 'red', quality_flags: ['suspected_calibration'],
+    ...(lateEvidence ? { event_state: 'ended', evidence_status: 'insufficient_after_late_arrival',
+      late_observation_refs: [{ kind: 'observation', observation_id: 'qa-late-observation', source_file_id: 'qa-late-file', row_number: 27, event_time: session.as_of }],
+      evidence_reassessment: { previous_event_revision: 1, as_of: session.as_of, reason: 'continuous_high_values_interrupted' } } : {}) }
 }
 function startBrief() { briefStatus = 'queued'; briefAttempt++; briefAsOf = session.as_of; briefRevision = selectedEventRevision }
 function briefPacket() {
@@ -165,7 +171,7 @@ async function api(path, request) {
     if (path.pathname.includes('/batches/')) return (ingestionBatches[id] || []).find(batch => batch.batch_id === path.pathname.split('/').at(-1))
     return item
   }
-  if (path.pathname === '/api/points') return path.searchParams.get('source_id') === otherSource.source_id ? [otherPoint] : [point, wind]
+  if (path.pathname === '/api/points') return path.searchParams.get('source_id') === otherSource.source_id ? [otherPoint] : [point, wind, ...(extraPointEnabled ? [secondMethane] : [])]
   if (/^\/api\/sources\/[^/]+\/coverage$/.test(path.pathname)) {
     const selectedSource = path.pathname.includes(otherSource.source_id) ? otherSource : source
     const selectedPoints = selectedSource === source ? [point, wind] : [otherPoint]
@@ -228,13 +234,19 @@ async function api(path, request) {
     return packet
   }
   if (path.pathname === '/api/sessions' && request.method === 'POST') {
-    session = { ...body, session_id: `qa-session-${savedSessions.size + 1}`, face_id: source.face_id, as_of: body.start_as_of, state: 'paused', speed: body.speed || 1 }
+    session = { ...body, session_id: `qa-session-${savedSessions.size + 1}`, face_id: source.face_id, as_of: body.start_as_of, state: 'paused', speed: body.speed || 1, prediction_models: {} }
     savedSessions.set(session.session_id, session)
     return session
   }
   if (path.pathname === '/api/sessions') return [...savedSessions.values()]
   if (/^\/api\/sessions\/qa-session-\d+$/.test(path.pathname)) {
     session = savedSessions.get(path.pathname.split('/').at(-1))
+    const packet = structuredClone(session), gate = nextSessionGate; nextSessionGate = null
+    if (gate) await gate
+    return packet
+  }
+  if (/^\/api\/sessions\/qa-session-\d+\/prediction-models$/.test(path.pathname)) {
+    session.prediction_models = { ...session.prediction_models, [body.point_id]: { model_id: body.model_id, version: body.version } }
     return session
   }
   if (/^\/api\/sessions\/qa-session-\d+\/actions$/.test(path.pathname)) {
@@ -255,7 +267,8 @@ async function api(path, request) {
       { event_time: new Date(Date.parse(session.as_of) - 60000).toISOString(), value: null },
       { event_time: new Date(Date.parse(session.as_of) + 60000).toISOString(), value: 9.99 },
     ] }
-  if (path.pathname === '/api/events') return !eventPresent || path.searchParams.get('point_id') === wind.point_id ? [] : [event()]
+  if (path.pathname === '/api/events') return path.searchParams.get('point_id') !== point.point_id ? [] : [...(eventPresent ? [event()] : []), ...(forecastAlert ? [forecastAlert] : [])]
+  if (path.pathname === '/api/events/qa-forecast-event/brief') return { event_id: 'qa-forecast-event', event_revision: 1, requested_event_revision: 1, session_id: session.session_id, source_id: session.source_id, as_of: session.as_of, status: 'completed', task: { task_id: 'qa-forecast-brief', session_id: session.session_id, source_id: session.source_id, event_id: 'qa-forecast-event', event_revision: 1, state: 'completed', final_text: 'QA预测简报已就绪。', tool_steps: [], citations: [], result_cards: [] } }
   if (path.pathname === '/api/events/qa-event/brief/cancel') { briefStatus = 'cancelled'; return briefPacket() }
   if (path.pathname === '/api/events/qa-event/brief') {
     if (request.method === 'POST') {
@@ -268,21 +281,29 @@ async function api(path, request) {
   }
   if (path.pathname === '/api/rules') return { rule_version: 'qa-draft', status: 'team-draft', source: 'UI验收规则（测试夹具）', observed_red_threshold: 0.8, observed_orange_threshold: 0.65, orange_duration_seconds: 300, forecast_yellow_threshold: 0.65 }
   if (path.pathname === '/api/models') return path.searchParams.get('point_id') === wind.point_id ? [] : modelCatalog.map(m => ({ ...m, source_id: session.source_id, face_id: source.face_id }))
-  if (path.pathname === '/api/forecasts' && request.method === 'POST') return forecast(body.model_id, body.version)
+  if (path.pathname === '/api/forecasts' && request.method === 'POST') {
+    const result = forecast(body.model_id, body.version)
+    if (!forecastAlertEnabled) return result
+    forecastAlert = { event_id: 'qa-forecast-event', event_revision: 1, source_id: session.source_id, session_id: session.session_id, point_id: point.point_id, event_type: 'forecast_exceedance', alert_level: 'yellow', event_state: 'new', start_at: session.as_of, forecast_run_id: result.run_id }
+    return { ...result, assessment: { event_refs: [{ event_id: forecastAlert.event_id, event_revision: 1 }] }, event_refs: [{ event_id: forecastAlert.event_id, event_revision: 1 }], briefs: [{ event_id: forecastAlert.event_id, event_revision: 1, status: 'queued' }] }
+  }
   if (path.pathname === '/api/forecasts') return forecastRuns.filter(run => run.session_id === path.searchParams.get('session_id')
     && (!path.searchParams.has('point_id') || run.point_id === path.searchParams.get('point_id'))
     && (!path.searchParams.has('model_id') || run.model_id === path.searchParams.get('model_id'))
     && (!path.searchParams.has('version') || run.model_version === path.searchParams.get('version'))).slice(0, Number(path.searchParams.get('limit') || 20))
   if (/^\/api\/forecasts\/qa-forecast-\d+$/.test(path.pathname)) return forecastRuns.find(run => path.pathname.endsWith(run.run_id))
   if (path.pathname === '/api/evidence') {
+    if (path.searchParams.get('event_id') === 'qa-forecast-event') return { event_snapshot: forecastAlert, snapshot_as_of: session.as_of, observation_fragments: [], forecast_run: forecastRuns[0], candidate_attribution: { status: 'not_ready', missing_fields: ['observed_event_required'] } }
     const packet = { event_snapshot: event(), snapshot_as_of: session.as_of,
       observation_fragments: [], condition_hints: [{ kind: 'suspected_calibration', text: 'UI验收：疑似标校提示。' }], missing_fields: [],
+      late_observation_fragments: lateEvidence ? [{ id: 'qa-late-observation', event_time: session.as_of, raw_value: '0.10', value: 0.1, source_file_id: 'qa-late-file', row_number: 27 }] : [],
       candidate_attribution: candidateAttribution() }
     const gate = nextEvidenceGate; nextEvidenceGate = null
     if (gate) await gate
     return packet
   }
   if (path.pathname === '/api/cases/qa-event') return casePacket()
+  if (path.pathname === '/api/cases/qa-forecast-event') return casePacket()
   if (path.pathname === '/api/cases/qa-event/actions') {
     actions.push({ ...body, action_id: `qa-action-${actions.length}`, actor_id: 'qa-user', occurred_at: new Date().toISOString(), data_as_of: session.as_of })
     return { case: casePacket().case, case_action: actions.at(-1) }
@@ -889,6 +910,137 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
           assert.equal(calls.filter(call => call.path.startsWith('/api/ingestion/')).length, count, '离开现场接入后停止轮询')
         } finally { release(); await context.close() }
       }
+    })
+    await t.test('selected model persists per session point and manual forecast refreshes its alert and brief', async () => {
+      reset('safety_management'); extraPointEnabled = true; forecastAlertEnabled = true
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+      try {
+        const page = await monitoredPage(context); page.setDefaultTimeout(6000); await page.clock.install()
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user'); await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.getByRole('button', { name: '创建会话', exact: true }).click()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        const selector = page.getByRole('combobox', { name: '预测模型', exact: true })
+        assert.equal(await selector.inputValue(), 'QA离线基线:test')
+        assert.equal(calls.filter(call => call.path.endsWith('/prediction-models')).length, 0, '默认基线不触发显式绑定')
+        await selector.selectOption('QA专业预测:trained-test-v1')
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        assert.deepEqual(calls.findLast(call => call.path.endsWith('/prediction-models'))?.body, { point_id: point.point_id, model_id: 'QA专业预测', version: 'trained-test-v1' })
+        await page.getByRole('combobox', { name: '监测点', exact: true }).selectOption(secondMethane.point_id)
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        assert.equal(await selector.inputValue(), 'QA离线基线:test', '其他测点沿用未绑定的默认基线')
+        await page.getByRole('combobox', { name: '监测点', exact: true }).selectOption(point.point_id)
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        assert.equal(await selector.inputValue(), 'QA专业预测:trained-test-v1')
+        await page.getByRole('button', { name: '运行预测', exact: true }).click()
+        await page.getByRole('button', { name: /预测预警 qa-T0 第1版 查看研判/ }).waitFor()
+        await page.getByText('QA预测简报已就绪。', { exact: true }).waitFor()
+        await page.getByRole('region', { name: '监测曲线', exact: true }).getByText('trained-test-v1', { exact: true }).first().waitFor()
+        assert.ok(calls.some(call => call.path === '/api/events/qa-forecast-event/brief' && call.method === 'GET'))
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: 900 }); await page.clock.runFor(250)
+          await page.screenshot({ path: resolve(artifactDir, `forecast-alert-linkage-${width}.png`), fullPage: true })
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
+        }
+        await page.setViewportSize({ width: 1440, height: 900 })
+        const id = session.session_id
+        await page.getByRole('combobox', { name: '数据源', exact: true }).selectOption(otherSource.source_id)
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        await page.getByRole('combobox', { name: '已有会话', exact: true }).selectOption(id)
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        assert.equal(await selector.inputValue(), 'QA专业预测:trained-test-v1', '恢复会话读取已保存点位模型绑定')
+      } finally { await context.close() }
+    })
+    await t.test('local multi point chat includes the currently selected point', async () => {
+      reset('safety_management'); extraPointEnabled = true
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+      try {
+        const page = await monitoredPage(context); page.setDefaultTimeout(6000)
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user'); await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.getByRole('button', { name: '创建会话', exact: true }).click()
+        await page.getByRole('combobox', { name: '监测点', exact: true }).selectOption(secondMethane.point_id)
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        await page.getByRole('textbox', { name: '向风险管控助手提问' }).fill('查询当前测点最近一小时记录')
+        await page.getByRole('button', { name: '发送 ↑', exact: true }).click()
+        await page.getByText('UI验收：工具任务已完成，数据截止当前会话时点。', { exact: true }).waitFor()
+        assert.equal(calls.findLast(call => call.path === '/api/chat').body.point_id, secondMethane.point_id)
+      } finally { await context.close() }
+    })
+    await t.test('running realtime UI reads server progress while replay and manual refresh retain explicit ticks', async () => {
+      reset('safety_management')
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+      let release = () => {}
+      try {
+        const page = await monitoredPage(context); page.setDefaultTimeout(6000); await page.clock.install()
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user'); await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.locator('.create-session select').selectOption('realtime')
+        await page.getByRole('button', { name: '创建会话', exact: true }).click()
+        await page.getByRole('button', { name: '▷ 继续', exact: true }).click()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        const tickCount = calls.filter(call => call.path.endsWith('/tick')).length
+        session.monitor = { state: 'running', last_run_at: session.as_of, last_success_at: session.as_of, consecutive_failures: 0 }
+        session.as_of = new Date(Date.parse(session.as_of) + 60000).toISOString()
+        await page.clock.runFor(5100)
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        assert.equal(calls.filter(call => call.path.endsWith('/tick')).length, tickCount, '实时自动刷新不重复推进服务端会话')
+        await page.getByText('后台监测：运行中', { exact: true }).waitFor()
+        await page.locator('.session-clock').getByText(mineTime(session.as_of), { exact: true }).waitFor()
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: 900 }); await page.clock.runFor(250)
+          await page.screenshot({ path: resolve(artifactDir, `realtime-monitor-${width}.png`), fullPage: true })
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
+        }
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.getByRole('button', { name: '刷新现场时间', exact: true }).click()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        assert.equal(calls.filter(call => call.path.endsWith('/tick')).length, tickCount + 1, '手动刷新仍显式处理现场数据')
+        nextSessionGate = new Promise(resolveGate => { release = resolveGate })
+        const id = session.session_id
+        await Promise.all([page.waitForRequest(request => new URL(request.url()).pathname === `/api/sessions/${id}`), page.clock.runFor(5100)])
+        await page.getByRole('combobox', { name: '数据源', exact: true }).selectOption(otherSource.source_id)
+        release()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        await page.clock.runFor(10100)
+        assert.equal(await page.locator('.session-strip').count(), 0, '来源切换后迟到后台会话响应不恢复旧会话')
+      } finally { release(); await context.close() }
+    })
+    await t.test('late arrival evidence is reviewable and no longer presented as an active orange warning', async () => {
+      reset('safety_management'); lateEvidence = true; selectedEventRevision = 2
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+      try {
+        const page = await monitoredPage(context); page.setDefaultTimeout(6000); await page.clock.install()
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user'); await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.getByRole('button', { name: '创建会话', exact: true }).click()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        const table = page.getByRole('region', { name: '预警事件记录', exact: true })
+        await table.getByText('补传后依据待核', { exact: true }).waitFor()
+        assert.equal(await page.locator('.monitor-summary .event-dot.orange').count(), 0)
+        await page.getByRole('button', { name: /实测超限 qa-T0 第2版 查看研判/ }).click()
+        const review = page.getByRole('region', { name: '补传依据复核', exact: true })
+        await review.locator('summary').click()
+        await review.getByText('补传记录打断原连续高值区间，原预警依据需要复核。', { exact: true }).waitFor()
+        assert.ok((await review.innerText()).includes('qa-late-file'))
+        assert.ok((await review.innerText()).includes('27'))
+        await review.getByRole('cell', { name: '0.10', exact: true }).waitFor()
+        await review.getByRole('cell', { name: '0.1', exact: true }).waitFor()
+        assert.equal(await page.getByRole('region', { name: '溯源结果', exact: true }).count(), 0, '待核事件不继续呈现旧溯源结论')
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: 900 }); await page.clock.runFor(250)
+          await mkdir(artifactDir, { recursive: true })
+          await page.screenshot({ path: resolve(artifactDir, `late-evidence-review-${width}.png`), fullPage: true })
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
+        }
+        await page.getByRole('button', { name: '打开人工处置', exact: true }).click()
+        await page.locator('.main-column').getByText('补传后依据待核', { exact: true }).waitFor()
+        assert.equal(await page.getByRole('region', { name: '溯源结果', exact: true }).count(), 0, '人工处置页同样保留待核状态，不沿用旧溯源结论')
+      } finally { await context.close() }
     })
     assert.deepEqual(externalRequests, [], '浏览器仅访问本机隔离服务')
   } finally {

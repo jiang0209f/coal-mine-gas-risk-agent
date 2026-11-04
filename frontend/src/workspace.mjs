@@ -10,6 +10,17 @@ export function chooseModelKey(models, current = '') {
   return modelKey(latest)
 }
 
+export function sessionModelKey(models, session, pointId) {
+  return chooseModelKey(models, modelKey(session?.prediction_models?.[pointId]))
+}
+
+export const needsEvidenceReview = event => event?.evidence_status === 'insufficient_after_late_arrival'
+export const isActiveEvent = event => Boolean(event) && event.event_state !== 'ended' && !needsEvidenceReview(event)
+export function sessionMonitorLabel(session) {
+  if (session?.mode !== 'realtime') return ''
+  return { running: '后台监测：运行中', error: '后台监测：异常', paused: '后台监测：已暂停', stopped: '后台监测：已停止', disabled: '后台监测：已停用' }[session.monitor?.state] || '等待后台监测'
+}
+
 export function contextKey(session, pointId = '') {
   return JSON.stringify([session?.session_id, session?.source_id, session?.as_of, pointId])
 }

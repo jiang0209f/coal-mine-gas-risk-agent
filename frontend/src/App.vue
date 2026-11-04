@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { createApiClient } from './api.mjs'
 import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, queryString } from './utils.mjs'
-import { chooseModelKey, contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, latestVisibleReading, modelKey, replayStart } from './workspace.mjs'
+import { contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, isActiveEvent, latestVisibleReading, modelKey, needsEvidenceReview, replayStart, sessionModelKey, sessionMonitorLabel } from './workspace.mjs'
 import { briefCitations, briefMatches, briefScopeKey, localCitationDetail, shouldPollBrief } from './briefs.mjs'
 import MonitorWorkspace from './components/MonitorWorkspace.vue'
 import KnowledgeWorkspace from './components/KnowledgeWorkspace.vue'
@@ -31,6 +31,7 @@ const chatInput = ref(''), messages = ref([]), chatBusy = ref(false), chatTask =
 let pollVersion = 0, playbackTimer, busySequence = 0, briefPollTimer, briefPollCount = 0
 const sourceRequests = createRequestGuard(), workspaceRequests = createRequestGuard(), eventRequests = createRequestGuard(), forecastRequests = createRequestGuard()
 const briefRequests = createRequestGuard(), citationRequests = createRequestGuard()
+const modelBindingRequests = createRequestGuard(), sessionPollRequests = createRequestGuard()
 const roles = { ventilation: '通风人员', gas_governance: '瓦斯治理人员', safety_management: '安全管理人员' }
 const phases = { new: '待确认', confirmed: '已确认', advice_reviewed: '建议已审核', executed: '已执行', feedback_submitted: '待复核', reviewed: '已复核' }
 const states = { running: '进行中', paused: '已暂停', ended: '已结束', completed: '已完成', failed: '失败', partial: '部分完成', awaiting_input: '待补充', cancelled: '已取消' }
@@ -52,7 +53,8 @@ const point = computed(() => points.value.find(item => item.point_id === pointId
 const isMethane = computed(() => point.value?.quantity === 'methane')
 const chartWindow = computed(() => active.value ? displayWindow(active.value.as_of, selectedEvent.value) : null)
 const phase = computed(() => caseResult.value?.case?.phase || 'new')
-const attribution = computed(() => evidence.value?.candidate_attribution)
+const evidenceReview = computed(() => needsEvidenceReview(evidence.value?.event_snapshot) || needsEvidenceReview(selectedEvent.value))
+const attribution = computed(() => evidenceReview.value ? null : evidence.value?.candidate_attribution)
 const adviceOptions = computed(() => caseResult.value?.advice_versions || [])
 const chosenAdvice = computed(() => adviceOptions.value.find(item => `${item.advice_id}:${item.version}` === selectedAdvice.value))
 const chosenAdviceStale = computed(() => adviceIsStale(caseResult.value, chosenAdvice.value))
@@ -83,7 +85,7 @@ function clearEvent() {
   selectedRefs.value = []; searchResults.value = []; caseContent.value = ''; closeCaseReference(); experienceContent.value = ''; referenceSearchRequests.invalidate()
 }
 function clearMonitor() {
-  workspaceRequests.invalidate(); forecastRequests.invalidate()
+  workspaceRequests.invalidate(); forecastRequests.invalidate(); modelBindingRequests.invalidate(); sessionPollRequests.invalidate()
   series.value = { rows: [] }; events.value = []; rules.value = null; models.value = []
   forecast.value = null; selectedModel.value = ''; pointReadings.value = {}; forecastLoading.value = false; forecastError.value = ''
   clearEvent()
@@ -140,6 +142,7 @@ function resetMapping() {
 }
 async function choosePoint(value) {
   if (typeof value === 'string') pointId.value = value
+  pollVersion++; chatBusy.value = false; chatTask.value = null; messages.value = []
   clearMonitor()
   resetMapping()
   await run('加载点位', refreshWorkspace)
@@ -197,7 +200,7 @@ async function refreshWorkspace(briefTriggers = null) {
     const row = result.status === 'fulfilled' ? latestVisibleReading(result.value, session.as_of) : null
     return [currentPoints[index].point_id, row ? { ...row, unit: result.value.unit || currentPoints[index].unit } : null]
   }))
-  selectedModel.value = chooseModelKey(models.value, selectedModel.value)
+  selectedModel.value = sessionModelKey(models.value, session, selectedPoint)
   const updatedEvent = previousEvent && events.value.find(item => item.event_id === previousEvent.event_id)
   if (updatedEvent) await loadEvent(updatedEvent, briefTriggers?.has(updatedEvent.event_id))
   else { clearEvent(); await loadLatestForecast() }
@@ -220,9 +223,18 @@ async function loadLatestForecast() {
 }
 
 async function chooseModel(value) {
-  forecastRequests.invalidate(); forecastLoading.value = false; forecast.value = null; selectedModel.value = value
-  clearEvent()
-  await run('加载模型结果', async () => { await refreshWorkspace() })
+  if (!active.value || !isMethane.value) return
+  const model = models.value.find(item => modelKey(item) === value)
+  if (!model) return
+  const session = active.value, selectedPoint = pointId.value, scope = contextKey(session, selectedPoint), request = modelBindingRequests.begin()
+  await run('保存预测模型', async () => {
+    const result = await post(`/sessions/${encodeURIComponent(session.session_id)}/prediction-models`, { point_id: selectedPoint, model_id: model.model_id, version: model.version })
+    if (!modelBindingRequests.isCurrent(request) || contextKey(active.value, pointId.value) !== scope) return
+    active.value = result
+    sessions.value = sessions.value.map(item => item.session_id === result.session_id ? result : item)
+    forecastRequests.invalidate(); forecastLoading.value = false; forecast.value = null; selectedModel.value = value
+    clearEvent(); await refreshWorkspace()
+  })
 }
 
 async function runForecast() {
@@ -238,16 +250,22 @@ async function runForecast() {
       const result = await post('/forecasts', { session_id: session.session_id, point_id: selectedPoint, model_id: model.model_id, version: model.version })
       if (!forecastRequests.isCurrent(request) || contextKey(active.value, pointId.value) !== scope || selectedModel.value !== chosen) return
       forecast.value = forecastMatches(result, session, selectedPoint, chosen) ? result : null
-      await refreshObservedSeries(session, selectedPoint, scope)
+      const refreshed = await Promise.allSettled([
+        api(`/observations?${queryString({ session_id: session.session_id, point_id: selectedPoint, ...displayWindow(session.as_of), aggregation_seconds: 60, limit: 1000 })}`),
+        api(`/events?${queryString({ session_id: session.session_id, point_id: selectedPoint })}`),
+      ])
+      if (!forecastRequests.isCurrent(request) || contextKey(active.value, pointId.value) !== scope || selectedModel.value !== chosen) return
+      if (refreshed[0].status === 'fulfilled') series.value = refreshed[0].value
+      else error.value = refreshed[0].reason.message
+      if (refreshed[1].status === 'fulfilled') events.value = list(refreshed[1].value)
+      else error.value = refreshed[1].reason.message
+      const linked = [...(result.briefs || []), ...(result.event_refs || [])].map(ref => events.value.find(event => event.event_id === ref.event_id)).find(Boolean)
+      if (linked) await loadEvent(linked, true)
     } catch (caught) { if (forecastRequests.isCurrent(request)) forecastError.value = caught.message }
     finally { if (forecastRequests.isCurrent(request)) forecastLoading.value = false }
   })
 }
 
-async function refreshObservedSeries(session, selectedPoint, scope) {
-  const result = await api(`/observations?${queryString({ session_id: session.session_id, point_id: selectedPoint, ...displayWindow(session.as_of), aggregation_seconds: 60, limit: 1000 })}`)
-  if (contextKey(active.value, pointId.value) === scope && !selectedEvent.value) series.value = result
-}
 async function sessionAction(action, fields = {}) {
   await run('更新会话', async () => {
     const sessionId = active.value.session_id
@@ -315,7 +333,7 @@ async function loadEvent(event, focusBrief = false) {
       const bundle = results[0].value
       evidence.value = bundle
       const linked = forecastForEvent(currentForecast, bundle, session, selectedPoint, chosenModel)
-      if (linked) { forecast.value = linked; selectedModel.value = modelKey(linked) }
+      if (linked) forecast.value = linked
     } else error.value = results[0].reason.message
     if (results[1].status === 'fulfilled') {
       caseResult.value = results[1].value
@@ -494,7 +512,7 @@ async function sendChat() {
   chatInput.value = ''; messages.value.push({ role: 'user', text: message })
   chatBusy.value = true; chatTask.value = null; const version = pollVersion
   try {
-    let task = await post('/chat', { session_id: active.value.session_id, message, async_execution: true })
+    let task = await post('/chat', { session_id: active.value.session_id, point_id: pointId.value, message, async_execution: true })
     for (let count = 0; count < 90 && ['running', 'queued'].includes(task.state); count++) {
       if (version !== pollVersion) return
       chatTask.value = task
@@ -514,12 +532,27 @@ async function cancelChat() {
     chatTask.value = await post(`/tasks/${chatTask.value.task_id}/cancel`, {})
   })
 }
-watch(active, () => {
+async function pollRunningSession() {
+  if (!active.value || active.value.state !== 'running' || busy.value) return
+  if (active.value.mode !== 'realtime') return tick()
+  const session = active.value, selectedPoint = pointId.value, scope = contextKey(session, selectedPoint), request = sessionPollRequests.begin()
+  const knownEvents = new Set(events.value.map(event => `${event.event_id}:${event.event_revision}`))
+  await run('刷新现场监测', async () => {
+    const result = await api(`/sessions/${encodeURIComponent(session.session_id)}`)
+    if (!sessionPollRequests.isCurrent(request) || contextKey(active.value, pointId.value) !== scope) return
+    active.value = result
+    await refreshWorkspace()
+    if (!sessionPollRequests.isCurrent(request) || active.value?.session_id !== session.session_id || pointId.value !== selectedPoint) return
+    const newEvent = events.value.find(event => isActiveEvent(event) && !knownEvents.has(`${event.event_id}:${event.event_revision}`))
+    if (newEvent && tab.value === 'monitor') await loadEvent(newEvent, true)
+  })
+}
+watch(() => JSON.stringify([active.value?.session_id, active.value?.mode, active.value?.state]), () => {
   clearInterval(playbackTimer)
-  if (active.value?.state === 'running') playbackTimer = setInterval(() => tick(), 5000)
+  if (active.value?.state === 'running') playbackTimer = setInterval(pollRunningSession, 5000)
 })
 watch(() => active.value?.session_id, () => { replayTime.value = active.value ? mineTime(active.value.start_as_of).replace(' ', 'T') : '' })
-onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate(); caseReferenceRequests.invalidate(); referenceSearchRequests.invalidate(); referenceListRequests.invalidate(); clearInterval(playbackTimer); clearBrief() })
+onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate(); caseReferenceRequests.invalidate(); referenceSearchRequests.invalidate(); referenceListRequests.invalidate(); clearInterval(playbackTimer); modelBindingRequests.invalidate(); sessionPollRequests.invalidate(); clearBrief() })
 </script>
 
 <template>
@@ -534,7 +567,7 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
       <div v-if="error" class="notice error" role="alert">{{ error }}<button @click="error = ''" aria-label="关闭错误">×</button></div><div v-if="notice" class="notice success" role="status">{{ notice }}<button @click="notice = ''" aria-label="关闭通知">×</button></div><div v-if="busy" class="loading-note" role="status">{{ busy }}…</div>
       <section class="context-panel panel"><div class="context-selects"><label>数据源<select v-model="sourceId" @change="run('加载数据源', changeSource)"><option value="" disabled>请选择</option><option v-for="item in sources" :key="item.source_id" :value="item.source_id">{{ item.name || item.source_id }}</option></select></label><label>监测点<select v-model="pointId" @change="choosePoint"><option value="" disabled>请选择</option><option v-for="item in points" :key="item.point_id" :value="item.point_id">{{ item.name || item.source_tag || item.point_id }}</option></select></label><label>已有会话<select :value="active?.session_id || ''" @change="selectSession"><option value="">选择已有会话</option><option v-for="item in sessions" :key="item.session_id" :value="item.session_id">{{ mineTime(item.as_of, false) }} · {{ states[item.state] || item.state }}</option></select></label></div>
         <p v-if="coverage" class="coverage-note muted">历史数据范围 {{ mineTime(coverage.start_at, false) }} — {{ mineTime(coverage.end_at, false) }} · {{ Number(coverage.observation_count || 0).toLocaleString() }} 条观测 · {{ coverage.points?.length || points.length }} 个测点</p>
-        <div v-if="active" class="session-strip"><span class="tag teal">{{ { historical_replay: '历史回放', simulated_stream: '模拟数据流', realtime: '现场接入' }[active.mode] }}</span><span class="session-clock">{{ mineTime(active.as_of) }}</span><span class="muted">{{ states[active.state] || active.state }}</span><div class="session-buttons"><button class="secondary small" :disabled="!!busy || active.state === 'ended'" @click="sessionAction(active.state === 'running' ? 'pause' : 'resume')">{{ active.state === 'running' ? 'Ⅱ 暂停' : '▷ 继续' }}</button><button class="primary small" :disabled="!!busy || active.state === 'ended'" @click="tick(60)">{{ active.mode === 'realtime' ? '刷新现场时间' : '前进 60 秒 →' }}</button></div></div>
+        <div v-if="active" class="session-strip"><span class="tag teal">{{ { historical_replay: '历史回放', simulated_stream: '模拟数据流', realtime: '现场接入' }[active.mode] }}</span><span class="session-clock">{{ mineTime(active.as_of) }}</span><span class="muted">{{ states[active.state] || active.state }}</span><span v-if="active.mode === 'realtime'" class="muted" role="status" :title="active.monitor?.last_success_at ? `最近成功监测 ${mineTime(active.monitor.last_success_at)}` : '等待后台处理记录'">{{ sessionMonitorLabel(active) }}{{ active.monitor?.state === 'error' ? ` · 连续失败${active.monitor.consecutive_failures || 0}次` : '' }}</span><div class="session-buttons"><button class="secondary small" :disabled="!!busy || active.state === 'ended'" @click="sessionAction(active.state === 'running' ? 'pause' : 'resume')">{{ active.state === 'running' ? 'Ⅱ 暂停' : '▷ 继续' }}</button><button class="primary small" :disabled="!!busy || active.state === 'ended'" @click="tick(60)">{{ active.mode === 'realtime' ? '刷新现场时间' : '前进 60 秒 →' }}</button></div></div>
         <details class="create-session" :open="!active"><summary>创建新会话</summary><div class="form-row"><label>运行方式<select v-model="mode"><option value="historical_replay">历史回放</option><option value="simulated_stream">模拟数据流</option><option value="realtime">现场接入</option></select></label><label>起始时间（UTC+8）<input v-model="startTime" type="datetime-local" step="1"></label><button class="primary" :disabled="!sourceId || !!busy || (mode !== 'realtime' && !startTime)" @click="createSession">创建会话</button></div></details>
       </section>
       <div class="replay-toolbar" v-if="active && active.mode !== 'realtime'"><label class="replay-speed">回放倍速<select :value="active.speed || 1" :disabled="!!busy || active.state === 'ended'" @change="sessionAction('set_speed', { speed: Number($event.target.value) })"><option v-for="speed in [0.5,1,2,5,10]" :key="speed" :value="speed">{{ speed }}倍</option></select></label><details><summary>重新回放</summary><div class="replay-controls"><label>回放起点（UTC+8）<input v-model="replayTime" type="datetime-local" step="1"></label><button class="secondary small" :disabled="!!busy || !replayTime" @click="restartReplay">从此处新建回放</button></div></details></div>
@@ -551,7 +584,7 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
       </template>
       <template v-if="tab === 'cases'">
         <section class="panel"><div class="section-heading"><div><h2>事件依据与处置</h2><p>{{ selectedEvent ? `${mineTime(selectedEvent.start_at)} · ${selectedEvent.point_id}` : '请在监测与预警中选择事件。' }}</p></div><span v-if="selectedEvent" class="tag teal">{{ operationContext === 'rehearsal' ? '演练记录' : '现场记录' }}</span></div>
-          <template v-if="selectedEvent && evidence"><div class="evidence-grid"><div><span>实测依据片段</span><strong>{{ evidence.observation_fragments?.length || 0 }} 条</strong></div><div><span>事件修订</span><strong>第 {{ evidence.event_snapshot?.event_revision }} 版</strong></div><div><span>当前处置阶段</span><strong>{{ phases[phase] || phase }}</strong></div></div><p v-for="hint in evidence.condition_hints || []" :key="hint.kind" class="hint">{{ hint.text }}</p><p v-if="evidence.missing_fields?.length" class="hint amber-text">依据缺项：{{ evidence.missing_fields.map(item => ({ observation_fragments: '实测片段', forecast_run: '预测运行' }[item] || item)).join('、') }}</p><details><summary>查看原始依据片段</summary><div class="table-scroll"><table><thead><tr><th>观测时间</th><th>原始值</th><th>有效值</th><th>质量</th></tr></thead><tbody><tr v-for="row in evidence.observation_fragments || []" :key="row.id"><td>{{ mineTime(row.event_time) }}</td><td>{{ row.raw_value ?? '—' }}</td><td>{{ row.value ?? '缺测' }}</td><td>{{ row.quality_flags?.map(qualityLabel).join('、') || '有效' }}</td></tr></tbody></table></div></details>
+          <template v-if="selectedEvent && evidence"><p v-if="evidenceReview" class="hint amber-text">补传后依据待核</p><button v-if="evidenceReview" class="ghost small" @click="tab = 'monitor'">查看补传依据</button><div class="evidence-grid"><div><span>实测依据片段</span><strong>{{ evidence.observation_fragments?.length || 0 }} 条</strong></div><div><span>事件修订</span><strong>第 {{ evidence.event_snapshot?.event_revision }} 版</strong></div><div><span>当前处置阶段</span><strong>{{ phases[phase] || phase }}</strong></div></div><p v-for="hint in evidence.condition_hints || []" :key="hint.kind" class="hint">{{ hint.text }}</p><p v-if="evidence.missing_fields?.length" class="hint amber-text">依据缺项：{{ evidence.missing_fields.map(item => ({ observation_fragments: '实测片段', forecast_run: '预测运行' }[item] || item)).join('、') }}</p><details><summary>查看原始依据片段</summary><div class="table-scroll"><table><thead><tr><th>观测时间</th><th>原始值</th><th>有效值</th><th>质量</th></tr></thead><tbody><tr v-for="row in evidence.observation_fragments || []" :key="row.id"><td>{{ mineTime(row.event_time) }}</td><td>{{ row.raw_value ?? '—' }}</td><td>{{ row.value ?? '缺测' }}</td><td>{{ row.quality_flags?.map(qualityLabel).join('、') || '有效' }}</td></tr></tbody></table></div></details>
           <section v-if="attribution" class="subsection attribution-card" aria-label="溯源结果">
             <div class="section-heading"><h3>溯源结果</h3><span class="tag" :class="attribution.status === 'completed' ? 'teal' : 'amber'">{{ { completed: '已完成', not_ready: '待补充', failed: '分析未完成' }[attribution.status] || '待分析' }}</span></div>
             <template v-if="attribution.status === 'completed'">

@@ -59,8 +59,11 @@ export function localCitationDetail(brief, citation) {
   if (citation.kind === 'event' && evidence?.event_snapshot) return { title, event: evidence.event_snapshot }
   if (citation.kind === 'rule' && evidence?.rules) return { title, event: evidence.event_snapshot, rules: evidence.rules }
   if (citation.kind === 'observation') {
-    const observations = (evidence?.observation_fragments || []).filter(row => (row.id || row.observation_id) === citation.observation_id)
-    if (observations.length) return { title, observations, summary: `来源文件 ${citation.source_file_id || observations[0].source_file_id} · 原始行 ${citation.row_number ?? observations[0].row_number}` }
+    const observations = [...(evidence?.observation_fragments || []), ...(evidence?.late_observation_fragments || [])].filter(row => (row.id || row.observation_id) === citation.observation_id)
+    if (observations.length) {
+      const file = citation.source_file_id || observations[0].source_file_id, row = citation.row_number ?? observations[0].row_number
+      return { title, observations, summary: [file ? `来源文件 ${file}` : '监测采集记录', row != null ? `原始行 ${row}` : ''].filter(Boolean).join(' · ') }
+    }
   }
   if (citation.kind === 'forecast_run') {
     const forecast = [evidence?.forecast_run, ...cards.filter(card => card.tool === 'get_forecast').map(card => card.data)].find(run => run?.run_id === citation.run_id)

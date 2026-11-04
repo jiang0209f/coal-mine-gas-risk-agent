@@ -15,6 +15,9 @@ __all__ = ["SessionEvaluationCollector"]
 _VERSION = "session-evaluation-v1"
 _INVALID = {"invalid", "invalid_value", "missing", "duplicate_timestamp", "forward_filled"}
 _PHYSICAL_UNITS = {"%", "%CH4", "%CH4（推定）"}
+_EVENT_FIELDS = ("event_id","session_id","source_id","point_id","event_type","event_revision","revision_as_of",
+    "event_time","start_at","end_at","alert_level","event_state","rule_version","rule_status","forecast_run_id",
+    "quality_flags","evidence_refs","evidence_status","late_observation_refs","evidence_reassessment")
 
 
 def _time(value):
@@ -234,7 +237,7 @@ class SessionEvaluationCollector:
             tick_records=tick_records,
             advice=advice, case_actions=actions, session_actions=session_actions, rules=[rules[point] for point in sorted(rules)],
             model=model_info, source_snapshot=_pick(source,("source_id","name","face_id","timezone")),
-            session_snapshot=_pick(session,("session_id","source_id","face_id","mode","start_as_of","as_of","state","speed","config_version","parent_session_id")),
+            session_snapshot=_pick(session,("session_id","source_id","face_id","mode","start_as_of","as_of","state","speed","config_version","parent_session_id","prediction_models")),
             data_file_refs=file_refs, missing_fields=sorted(set(missing)), collection_summary=summary)
         spec = dict(face_id=source["face_id"], dataset_refs=[context.source_id] +
             ["sha256:"+item["sha256"] if item.get("sha256") else "source_file:"+item["file_id"] for item in file_refs],
@@ -342,9 +345,13 @@ class SessionEvaluationCollector:
         for event in sorted(latest.values(),key=lambda row:(row["start_at"],row["event_id"])):
             lower = max(_time(event["start_at"]),start)
             upper = min(_time(event.get("end_at") or event["event_time"]),end)
-            snapshot = _pick(event,("event_id","session_id","source_id","point_id","event_type","event_revision","revision_as_of",
-                "event_time","start_at","end_at","alert_level","event_state","rule_version","rule_status","forecast_run_id","quality_flags","evidence_refs"))
+            snapshot = _pick(event,_EVENT_FIELDS)
             if event["event_type"] == "observed_exceedance":
+                if event.get("evidence_status") == "insufficient_after_late_arrival":
+                    if any(row["event_id"] == event["event_id"] and
+                           _time(row.get("end_at") or row["event_time"]) >= start for row in visible):
+                        snapshots.append(snapshot)
+                    continue
                 if upper < start or lower > upper:
                     continue
                 if event.get("end_at") is not None and _time(event["end_at"]) == start and _time(event["start_at"]) < start:
@@ -380,7 +387,10 @@ class SessionEvaluationCollector:
                         run_ids=sorted(target_runs), rule_version=event["rule_version"], threshold=threshold,
                         prediction_stage=stage,semantics="forecast_target_windows", quality_flags=event.get("quality_flags",[]),
                         evidence_refs=[dict(kind="forecast_run",run_id=run_id) for run_id in sorted(target_runs)]))
-        return actual,alerts,snapshots
+        selected_ids = {event["event_id"] for event in snapshots}
+        history = {(event["event_id"], event["event_revision"]): _pick(event,_EVENT_FIELDS)
+                   for event in visible if event["event_id"] in selected_ids}
+        return actual,alerts,sorted(history.values(),key=lambda event:(event["start_at"],event["event_id"],event["event_revision"]))
 
     def _audit(self, raw, context, event_ids, all_points, start, end):
         def in_window(row, field="data_as_of", allow_missing_source=False):

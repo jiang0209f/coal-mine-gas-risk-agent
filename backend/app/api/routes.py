@@ -72,6 +72,12 @@ class Tick(Payload):
     target_as_of: AwareDatetime | None = None
 
 
+class SessionPredictionModel(Payload):
+    point_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+
+
 class EventBrief(Payload):
     session_id: str = Field(min_length=1)
     event_revision: int | None = Field(default=None, ge=1)
@@ -164,6 +170,7 @@ class CaseAction(Payload):
 class Chat(Payload):
     session_id: str
     message: str | dict
+    point_id: str | None = Field(default=None, min_length=1)
     async_execution: bool = False
 
 
@@ -344,6 +351,11 @@ def session_action(session_id: str, body: SessionAction, a=Depends(actor), s=Dep
     return s["sessions"].apply_action(a, session_id, **body.model_dump())
 
 
+@router.post("/sessions/{session_id}/prediction-models")
+def session_prediction_model(session_id: str, body: SessionPredictionModel, a=Depends(actor), s=Depends(services)):
+    return s["sessions"].set_prediction_model(a, session_id, **body.model_dump())
+
+
 @router.post("/sessions/{session_id}/tick")
 def tick(session_id: str, body: Tick, background_tasks: BackgroundTasks, a=Depends(actor), s=Depends(services)):
     return s["runner"].run_once(a, session_id, body.target_as_of,
@@ -384,9 +396,10 @@ def register_model(body: dict = Body(), a=Depends(actor), s=Depends(services)):
 
 
 @router.post("/forecasts")
-def forecast(body: Forecast, a=Depends(actor), s=Depends(services)):
-    return s["prediction"].run_prediction(s["sessions"].get_context(a, body.session_id), body.point_id,
-                                          body.model_id, body.horizon_seconds, version=body.version)
+def forecast(body: Forecast, background_tasks: BackgroundTasks, a=Depends(actor), s=Depends(services)):
+    return s["runner"].run_forecast(s["sessions"].get_context(a, body.session_id), body.point_id,
+        body.model_id, body.horizon_seconds, version=body.version,
+        schedule=lambda work: background_tasks.add_task(work))
 
 
 @router.get("/forecasts")
@@ -528,9 +541,18 @@ def review_experience(experience_id: str, body: Review, a=Depends(actor), s=Depe
 @router.post("/chat")
 def chat(body: Chat, background_tasks: BackgroundTasks, a=Depends(actor), s=Depends(services)):
     ctx = s["sessions"].get_context(a, body.session_id)
+    message = body.message
+    if body.point_id is not None:
+        point = s["data"]._point(body.point_id)
+        if point["source_id"] != ctx.source_id:
+            raise DomainError("问答测点不属于当前来源", code="forbidden", status_code=403)
+        if isinstance(message, dict) and message.get("selected_point_id") not in (None, body.point_id):
+            raise DomainError("问答测点与当前选择不一致")
+        message = ({**message, "selected_point_id": body.point_id} if isinstance(message, dict)
+                   else {"message": message, "selected_point_id": body.point_id})
     if body.async_execution:
-        return s["agent"].submit(ctx, body.message, schedule=lambda work: background_tasks.add_task(work))
-    return s["agent"].chat(ctx, body.message)
+        return s["agent"].submit(ctx, message, schedule=lambda work: background_tasks.add_task(work))
+    return s["agent"].chat(ctx, message)
 
 
 @router.get("/tasks/{task_id}")
