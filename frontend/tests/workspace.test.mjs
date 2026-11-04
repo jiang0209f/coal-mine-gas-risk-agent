@@ -6,6 +6,64 @@ import { adviceIsStale, canCaseAction, referenceLocation, referenceValidity } fr
 import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, seriesToPoints } from '../src/utils.mjs'
 import { chooseModelKey, contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, latestVisibleReading, modelKey, replayStart } from '../src/workspace.mjs'
 
+test('ingestion status distinguishes enabled configuration from received data', async () => {
+  const { connectorStatusLabel, batchStatusLabel } = await import('../src/ingestion.mjs')
+  assert.equal(connectorStatusLabel({ enabled: false }), '未启用')
+  assert.equal(connectorStatusLabel({ enabled: true }), '等待数据')
+  assert.equal(connectorStatusLabel({ enabled: true, state: 'active' }), '近期有数据')
+  assert.equal(connectorStatusLabel({ enabled: true, state: 'stale' }), '数据中断')
+  assert.equal(connectorStatusLabel({ enabled: true, status: 'receiving' }), '近期有数据')
+  assert.equal(connectorStatusLabel({ enabled: true, status: 'retry_wait' }), '等待重试')
+  assert.equal(batchStatusLabel({ status: 'queued' }), '待入库')
+  assert.equal(batchStatusLabel({ status: 'completed' }), '已入库')
+  assert.equal(batchStatusLabel({ status: 'retrying' }), '等待重试')
+  assert.equal(batchStatusLabel({ status: 'conflict' }), '内容冲突')
+  assert.equal(batchStatusLabel({ status: 'pending' }), '待入库')
+  assert.equal(batchStatusLabel({ status: 'rejected' }), '待核查')
+})
+
+test('ingestion worker health describes the processing service separately from data receipt', async () => {
+  const { workerStatusLabel } = await import('../src/ingestion.mjs')
+  assert.equal(workerStatusLabel({ enabled: true, state: 'running' }), '运行中')
+  assert.equal(workerStatusLabel({ enabled: true, state: 'starting' }), '启动中')
+  assert.equal(workerStatusLabel({ enabled: true, state: 'degraded' }), '异常')
+  assert.equal(workerStatusLabel({ enabled: false, state: 'disabled' }), '已停用')
+  assert.equal(workerStatusLabel({ enabled: true, state: 'stopped' }), '已停止')
+  assert.equal(workerStatusLabel(null), '读取中')
+})
+
+test('standard ingestion configuration binds the selected source and starts disabled', async () => {
+  const { ingestionSpec } = await import('../src/ingestion.mjs')
+  const form = { connectorId: 'monitor-a', name: '监测系统A', adapter: 'standard_json' }
+  const value = ingestionSpec(form, 'source-a', [{ point_id: 'p', source_id: 'source-a' }])
+  assert.equal(value.connector_id, 'monitor-a')
+  assert.equal(value.source_id, 'source-a')
+  assert.equal(value.enabled, false)
+  assert.equal(value.adapter_kind, 'standard_json')
+  assert.equal(form.enabled, undefined)
+})
+
+test('mapped ingestion configuration validates known point bindings before submission', async () => {
+  const { ingestionSpec } = await import('../src/ingestion.mjs')
+  const points = [{ point_id: 'p', source_id: 'source-a' }, { point_id: 'q', source_id: 'source-b' }]
+  const form = { connectorId: 'mapped-a', name: '监测映射', adapter: 'mapped_json', rowsPath: 'data.records',
+    idField: 'id', tagField: 'tag', timeField: 'time', valueField: 'value', timezone: '+08:00',
+    bindings: [{ tag: 'TAG-A', pointId: 'p' }] }
+  assert.equal(ingestionSpec(form, 'source-a', points).source_id, 'source-a')
+  assert.throws(() => ingestionSpec({ ...form, bindings: [{ tag: 'TAG-B', pointId: 'q' }] }, 'source-a', points), /当前来源/)
+  assert.throws(() => ingestionSpec({ ...form, bindings: [{ tag: '', pointId: 'p' }] }, 'source-a', points), /标签/)
+  assert.throws(() => ingestionSpec({ ...form, bindings: [{ tag: 'TAG-A', pointId: 'p' }, { tag: 'TAG-A', pointId: 'p' }] }, 'source-a', points), /重复/)
+})
+
+test('ingestion error labels preserve conflict and authentication causes without raw errors', async () => {
+  const { ingestionErrorLabel } = await import('../src/ingestion.mjs')
+  assert.equal(ingestionErrorLabel('reading_conflict'), '测值编号对应的内容冲突')
+  assert.equal(ingestionErrorLabel('authentication_required'), '接入身份需要重新认证')
+  assert.equal(ingestionErrorLabel('ingest_unavailable'), '入库暂不可用，等待重试')
+  assert.equal(ingestionErrorLabel('invalid_readings'), '监测记录需要核对')
+  assert.equal(ingestionErrorLabel('unknown-private-error'), '接入处理未完成')
+})
+
 test('replay creates a linked new session without changing the previous clock', async () => {
   const { replaySessionSpec } = await import('../src/evaluation.mjs')
   const session = { session_id: 'old-session', source_id: 'source', mode: 'historical_replay',

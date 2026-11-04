@@ -1,6 +1,7 @@
 """本地后端入口。"""
 
 from contextlib import asynccontextmanager
+import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -16,6 +17,7 @@ from app.schemas.common import DomainError
 def build_services(configuration):
     from app.services.auth.service import AuthService
     from app.services.data.service import DataService
+    from app.services.data.ingestion import IngestionService
     from app.services.sessions.service import SessionsService
     from app.services.sessions.runner import SessionRunner
     from app.services.prediction.service import PredictionService
@@ -36,6 +38,7 @@ def build_services(configuration):
     store = Store(configuration.database_url or f"sqlite+pysqlite:///{(runtime / 'app.db').as_posix()}")
     s = {"store": store, "auth": AuthService(store), "sessions": SessionsService(store)}
     s["data"] = DataService(store, runtime / "imports")
+    s["ingestion"] = IngestionService(store, s["data"])
     model_runtime = ModelRuntime(configuration.model_catalog_path)
     trained_models = TrainedModelsPipeline(store, s["data"], model_runtime)
     s["prediction"] = PredictionService(store, s["data"], trained_models)
@@ -59,10 +62,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(application):
         application.state.settings = configuration
         application.state.services = build_services(configuration)
+        from app.services.data.ingestion_worker import run_ingestion_worker
+        stop = asyncio.Event()
+        status = {"enabled": configuration.ingestion_worker_enabled,
+                  "state": "starting" if configuration.ingestion_worker_enabled else "disabled"}
+        application.state.ingestion_worker_status = status
+        worker = (asyncio.create_task(run_ingestion_worker(application.state.services["ingestion"], stop, status))
+                  if configuration.ingestion_worker_enabled else None)
         try:
             yield
         finally:
-            application.state.services["store"].close()
+            stop.set()
+            try:
+                if worker is not None:
+                    await worker
+            finally:
+                application.state.services["store"].close()
 
     application = FastAPI(title="煤矿瓦斯智能体", version="0.2.0", lifespan=lifespan)
 

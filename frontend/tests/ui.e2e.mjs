@@ -29,10 +29,19 @@ const reference = { reference_id: 'qa-approved-reference', entry_id: 'qa-documen
 let role, session, actions, advice, calls, pendingChat, taskState, attributionState, forecastRuns, savedSessions, nextEvidenceGate, documents, nextDocumentGate
 let briefStatus, briefAttempt, briefAsOf, briefRevision, selectedEventRevision, generateOnTick, eventPresent, nextBriefGate
 let evaluationReports, nextMetricGate
+let ingestionConnectors, ingestionBatches, nextIngestionGate, ingestionWorker
 function reset(value) {
   role = value; session = null; actions = []; advice = []; calls = []; documents = []; nextDocumentGate = null; pendingChat = false; taskState = 'running'; attributionState = 'completed'; forecastRuns = []; savedSessions = new Map(); nextEvidenceGate = null
   briefStatus = 'not_started'; briefAttempt = 0; briefAsOf = null; briefRevision = 1; selectedEventRevision = 1; generateOnTick = false; eventPresent = true; nextBriefGate = null
   evaluationReports = []; nextMetricGate = null
+  ingestionConnectors = []; ingestionBatches = {}; nextIngestionGate = null
+  ingestionWorker = { enabled: true, state: 'running', last_run_at: '2026-11-04T12:00:02Z', last_success_at: '2026-11-04T12:00:02Z' }
+}
+function connector(id = 'qa-connector', selectedSource = source) {
+  return { connector_id: id, name: selectedSource === source ? '现场监测接入' : '第二来源接入', source_id: selectedSource.source_id, face_id: source.face_id,
+    adapter_kind: 'standard_json', mapping: {}, tag_map: {}, enabled: false, status: 'disabled', config_version: 1,
+    last_received_at: null, last_success_at: null, latest_event_time: null, last_heartbeat_at: null, last_error_code: null,
+    counts: { accepted_batches: 0, completed_batches: 0, duplicate_batches: 0, pending_batches: 0, retry_batches: 0, rejected_batches: 0, queued_rows: 0, ingested_rows: 0, duplicate_rows: 0, conflict_batches: 0 } }
 }
 function evaluationReport() {
   return { evaluation_id: 'qa-evaluation', manifest_id: 'qa-manifest', face_id: source.face_id, generated_at: '2026-11-04T12:00:00Z',
@@ -126,6 +135,36 @@ async function api(path, request) {
   if (path.pathname === '/api/auth/login') return { access_token: 'qa-isolated-token', token_type: 'bearer', user: { user_id: 'qa-user', username: '界面验收账户', roles: [role], face_ids: [source.face_id] } }
   if (path.pathname === '/api/auth/logout') return {}
   if (path.pathname === '/api/sources') return [source, otherSource]
+  if (path.pathname === '/api/ingestion/status') {
+    const packet = { connectors: structuredClone(ingestionConnectors.filter(item => item.source_id === path.searchParams.get('source_id'))), worker: structuredClone(ingestionWorker) }
+    const gate = nextIngestionGate; nextIngestionGate = null
+    if (gate) await gate
+    return packet
+  }
+  if (path.pathname === '/api/ingestion/connectors') {
+    if (request.method === 'POST') { const item = { ...connector(body.connector_id || 'qa-connector'), ...body, enabled: false, status: 'disabled' }; ingestionConnectors.push(item); return item }
+    const packet = structuredClone(ingestionConnectors.filter(item => item.source_id === path.searchParams.get('source_id')))
+    const gate = nextIngestionGate; nextIngestionGate = null
+    if (gate) await gate
+    return packet
+  }
+  if (path.pathname.startsWith('/api/ingestion/connectors/')) {
+    const id = path.pathname.split('/')[4], item = ingestionConnectors.find(value => value.connector_id === id)
+    if (!item) throw new Error('未找到隔离接入配置')
+    if (path.pathname.endsWith('/actions')) {
+      if (body.action === 'enable') Object.assign(item, { enabled: true, status: 'awaiting_data' })
+      if (body.action === 'pause') Object.assign(item, { enabled: false, status: 'disabled' })
+      if (body.action === 'retry') {
+        Object.assign(item, { status: 'receiving', last_success_at: '2026-11-04T12:00:01Z', latest_event_time: '2026-11-04T11:59:00Z', last_error_code: null })
+        Object.assign(item.counts, { completed_batches: 1, pending_batches: 0, retry_batches: 0, queued_rows: 0, ingested_rows: 1, duplicate_rows: 1 })
+        ingestionBatches[id] = ingestionBatches[id].map(batch => ({ ...batch, status: 'completed', applied_at: item.last_success_at, imported_rows: 1, duplicate_rows: 1, attempt_count: 2, next_retry_at: null, error_code: null }))
+      }
+      return item
+    }
+    if (path.pathname.endsWith('/batches')) { const items = ingestionBatches[id] || []; return { connector_id: id, total: items.length, offset: 0, limit: 20, items } }
+    if (path.pathname.includes('/batches/')) return (ingestionBatches[id] || []).find(batch => batch.batch_id === path.pathname.split('/').at(-1))
+    return item
+  }
   if (path.pathname === '/api/points') return path.searchParams.get('source_id') === otherSource.source_id ? [otherPoint] : [point, wind]
   if (/^\/api\/sources\/[^/]+\/coverage$/.test(path.pathname)) {
     const selectedSource = path.pathname.includes(otherSource.source_id) ? otherSource : source
@@ -756,6 +795,100 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
         assert.equal(savedSessions.get(oldId).as_of, frozenOldClock)
         assert.notEqual(session.session_id, oldId)
       } finally { await context.close() }
+    })
+    await t.test('field ingestion registers disabled mapping and distinguishes receipt, retry and completed writes', async () => {
+      reset('safety_management')
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+      try {
+        const page = await monitoredPage(context); page.setDefaultTimeout(6000)
+        const errors = []; page.on('pageerror', error => errors.push(error.message))
+        await page.clock.install()
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user'); await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.getByRole('heading', { name: 'TEST-UI 工作面', exact: true }).waitFor()
+        await page.getByRole('button', { name: /现场接入/ }).click()
+        await page.getByText('补传服务：运行中', { exact: true }).waitFor()
+        await page.getByLabel('接入名称', { exact: true }).fill('现场监测接入')
+        await page.getByLabel('接入编号（可选）', { exact: true }).fill('qa-connector')
+        await page.getByLabel('数据格式', { exact: true }).selectOption('mapped_json')
+        await page.getByLabel('记录路径', { exact: true }).fill('data.records')
+        await page.getByLabel('上游测点标签 1', { exact: true }).fill('TAG-T0')
+        await page.getByLabel('对应测点 1', { exact: true }).selectOption(point.point_id)
+        await page.getByRole('button', { name: '登记接入', exact: true }).click()
+        const state = page.getByRole('region', { name: '接入运行状态', exact: true })
+        await state.getByText('未启用', { exact: true }).waitFor()
+        const spec = calls.findLast(call => call.path === '/api/ingestion/connectors' && call.method === 'POST').body
+        assert.equal(spec.source_id, source.source_id); assert.equal(spec.enabled, false)
+        assert.equal(spec.mapping.records_path, 'data.records'); assert.deepEqual(spec.tag_map, { 'TAG-T0': point.point_id })
+        await state.getByRole('button', { name: '启用接入', exact: true }).click()
+        await state.getByText('等待数据', { exact: true }).waitFor()
+        assert.equal(await state.getByText(/已联网|在线/).count(), 0)
+        const item = ingestionConnectors[0]
+        Object.assign(item, { status: 'retry_wait', last_received_at: '2026-11-04T12:00:00Z', last_error_code: 'ingest_unavailable' })
+        Object.assign(item.counts, { accepted_batches: 1, pending_batches: 0, retry_batches: 1, queued_rows: 2 })
+        ingestionBatches[item.connector_id] = [{ batch_id: 'qa-batch', connector_id: item.connector_id, status: 'retry_wait', row_count: 2,
+          accepted_at: item.last_received_at, applied_at: null, attempt_count: 1, next_retry_at: '2026-11-04T12:01:00Z', error_code: 'ingest_unavailable', imported_rows: 0, duplicate_rows: 0, durable: true }]
+        await page.getByRole('button', { name: '刷新接入状态', exact: true }).click()
+        await state.locator('.ingestion-status').getByText('等待重试', { exact: true }).waitFor()
+        const batches = page.getByRole('region', { name: '服务端批次队列', exact: true })
+        await batches.getByText('qa-batch', { exact: true }).waitFor()
+        await state.getByText('尚无成功入库', { exact: true }).waitFor()
+        ingestionWorker.state = 'degraded'; ingestionWorker.last_error_code = 'ingestion_worker_failed'
+        await page.getByRole('button', { name: '刷新接入状态', exact: true }).click()
+        await page.getByText('补传服务：异常', { exact: true }).waitFor()
+        ingestionWorker.state = 'running'; ingestionWorker.last_error_code = null
+        await state.getByRole('button', { name: '立即重试', exact: true }).click()
+        await state.getByText('近期有数据', { exact: true }).waitFor()
+        await batches.getByText('已入库', { exact: true }).waitFor()
+        await batches.getByRole('button', { name: '查看批次 qa-batch', exact: true }).click()
+        await page.getByRole('region', { name: '批次摘要', exact: true }).getByText('已入库 · 新增1条 · 重复1条', { exact: true }).waitFor()
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: 900 })
+          await page.clock.runFor(250)
+          await mkdir(artifactDir, { recursive: true })
+          await page.screenshot({ path: resolve(artifactDir, `field-ingestion-${width}.png`), fullPage: true })
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `接入页面${width}px无整页溢出`)
+          if (width === 390) assert.ok(await page.evaluate(() => document.querySelector('.sidebar nav').scrollWidth <= document.querySelector('.sidebar nav').clientWidth + 1), '390px五个导航入口完整可见')
+        }
+        await page.getByRole('button', { name: /监测与预警/ }).click()
+        await page.getByRole('button', { name: /现场接入/ }).click()
+        await state.getByText('近期有数据', { exact: true }).waitFor()
+        await state.getByRole('button', { name: '暂停接入', exact: true }).click()
+        await state.getByText('未启用', { exact: true }).waitFor()
+        assert.deepEqual(errors, [])
+        assert.ok(calls.filter(call => call.path.startsWith('/api/ingestion/')).every(call => call.authenticated))
+      } finally { await context.close() }
+    })
+    await t.test('field ingestion is read only for business roles and discards late source responses', async () => {
+      for (const viewer of ['ventilation', 'gas_governance']) {
+        reset(viewer)
+        ingestionConnectors = [connector(), connector('qa-other-connector', otherSource)]
+        const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+        let release = () => {}
+        try {
+          const page = await monitoredPage(context); page.setDefaultTimeout(6000); await page.clock.install()
+          await page.goto(url)
+          await page.locator('[name="username"]').fill('qa-only-user'); await page.locator('[name="password"]').fill('qa-only-password-for-test')
+          await page.getByRole('button', { name: /^登录工作台/ }).click()
+          await page.getByRole('heading', { name: 'TEST-UI 工作面', exact: true }).waitFor()
+          await page.getByRole('button', { name: /现场接入/ }).click()
+          const state = page.getByRole('region', { name: '接入运行状态', exact: true })
+          await state.getByRole('heading', { name: '现场监测接入', exact: true }).waitFor()
+          assert.equal(await page.getByRole('button', { name: /登记接入|启用接入|暂停接入|立即重试/ }).count(), 0)
+          nextIngestionGate = new Promise(resolveGate => { release = resolveGate })
+          await Promise.all([page.waitForRequest(request => request.url().includes('/ingestion/status?')), page.getByRole('button', { name: '刷新接入状态', exact: true }).click()])
+          await page.getByRole('combobox', { name: '数据源', exact: true }).selectOption(otherSource.source_id)
+          await state.getByRole('heading', { name: '第二来源接入', exact: true }).waitFor()
+          release()
+          await page.clock.runFor(1100)
+          assert.equal(await state.getByRole('heading', { name: '现场监测接入', exact: true }).count(), 0, '旧来源响应不覆盖当前来源')
+          await page.getByRole('button', { name: /监测与预警/ }).click()
+          const count = calls.filter(call => call.path.startsWith('/api/ingestion/')).length
+          await page.clock.runFor(10100)
+          assert.equal(calls.filter(call => call.path.startsWith('/api/ingestion/')).length, count, '离开现场接入后停止轮询')
+        } finally { release(); await context.close() }
+      }
     })
     assert.deepEqual(externalRequests, [], '浏览器仅访问本机隔离服务')
   } finally {

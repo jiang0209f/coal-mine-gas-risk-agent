@@ -27,6 +27,7 @@
 | --- | --- | --- | --- | --- |
 | auth | 登录凭据、令牌；校验角色及工作面权限 | Actor、访问范围、登录状态 | `POST /auth/login`、`GET /auth/me`、`POST /auth/logout` | 所有业务入口调用；前端按身份显示操作 |
 | data | 上传文件、列映射或标准现场读数；点位映射、质量检查、时钟内查询 | 数据源、点位、观测、质量标志及原始行引用 | `GET/POST /sources`、`GET/POST /points`、`POST /files`、`POST /history-imports`、`POST /ingest`、`GET /observations` | 为 sessions、prediction、alerts、traceability 提供数据；后续接现场协议适配 |
+| data / ingestion | 标准或映射JSON、来源及测点绑定；持久接收、补传、去重和状态监测 | 接入配置、批次收据、入库结果、积压和安全错误码 | `GET /ingestion/status`、`GET/POST /ingestion/connectors`、`GET /ingestion/connectors/{id}`、`POST /ingestion/connectors/{id}/actions`、`POST /ingestion/connectors/{id}/heartbeat`、`GET/POST /ingestion/connectors/{id}/batches`、`GET /ingestion/connectors/{id}/batches/{batch_id}` | 本机采集缓存→HTTP适配→持久队列→data标准观测；后台仅处理已启用配置；前端查询运行状态与批次 |
 | sessions | 来源、模式、起始时刻、速度、会话动作；维护单调数据时钟 | 会话、执行上下文、一次推进结果 | `GET/POST /sessions`、`GET /sessions/{session_id}`、`POST /sessions/{session_id}/actions`、`POST /sessions/{session_id}/tick` | runner 调用 data、prediction、alerts；事件提交后触发去重的后台简报任务 |
 | prediction | 会话、测点、模型版本、闭合历史窗口；预测及候选溯源运行 | 预测序列、候选类别、运行编号、输入引用、缺失字段 | `GET/POST /models`、`GET /model-packages`、`POST /model-package-runs`、`GET /model-package-runs/{run_id}`、`POST /forecasts`、`GET /forecasts/{run_id}` | 读取 data，通过本地模型运行环境推理；traceability 调用事件候选溯源 |
 | alerts | 有效观测或物理浓度预测、规则版本；识别并修订事件 | 事件编号、类型、等级、状态、版本及证据引用 | `GET /rules`、`GET /events` | runner 调用判断；traceability、cases 读取事件快照；当前规则接口为查询 |
@@ -61,6 +62,11 @@
 
 ```mermaid
 flowchart TD
+  UP[监测系统采集端] --> OB[本机持久缓存]
+  OB --> IA[JSON适配与批次收据]
+  IA --> IQ[服务端持久队列]
+  IQ --> ID[data标准观测入库与去重]
+  ID --> D
   UI[工作台选择来源和会话] --> S[sessions 推进时钟]
   S --> D[data 查询当前可见观测]
   S --> P[prediction 预测]
@@ -82,7 +88,7 @@ flowchart TD
   C --> E
 ```
 
-1. 导入：文件上传→历史列映射→数据检查→来源和点位登记→观测查询；现场适配器最终写入同一标准观测入口。
+1. 导入：文件上传→历史列映射→数据检查→来源和点位登记→观测查询；现场接入走本机缓存→JSON适配→服务端持久队列→标准观测，测值与完成收据共事务。
 2. 监测：推进会话→实测判断＋预测→事件版本入库→页面刷新。相同会话、时钟和输入配置的重复推进复用已有结果。
 3. 研判：选择事件→查询指定版本的证据→适用时执行或复用候选溯源→显示原始片段、规则、模型与候选结果。
 4. 智能体：提交问题→八工具任务→结果卡和引用；工具通过已有服务读取同一会话上下文。
@@ -164,8 +170,10 @@ flowchart TD
 | 二：智能体主动简报 | 四类业务交互、事件版本简报、步骤/引用、失败重试和取消 | 同一事件版本结果复用；引用可打开；失败保留已完成卡片；取消阻止后续工具调用 |
 | 三：知识与人工闭环 | 作业规程入库审核、建议版本、五类人工动作、经验审核 | 全链可操作；被拒绝建议无法登记执行；复核记录冻结；权限和来源性质验证通过 |
 | 四：回放与评估（已实现） | 会话动作审计、关联重放、会话采集、冻结报告、指标与原始观测明细、本地导出 | 重复回放遵守时钟；按冻结目标区间和观测支持计算；三类摘要及导出投影可核对；缺项和零分母明确展示 |
-| 五：现场接口 | 现场协议转换、来源/测点绑定、重试去重和运行状态 | 实际接口样本入库并查询成功；断线补传和重复发送验证通过；现场会话受服务器时钟约束 |
+| 五：现场接口（通用接入已实现） | 标准/映射JSON、来源/测点绑定、采集端缓存、服务端持久队列、重试去重与状态页面 | 已验证实际本机HTTP断线/重启/丢收据补传和并发去重；实际监测系统协议在接口资料提供后适配；现场会话受服务器时钟约束 |
 
-现场阶段需要提供：接口协议与认证方式、访问网络、点位编号和单位、采样/上传周期。正式规则与建议发布还需核对矿井有效规则、作业规程版本和审核权限；现有作业规程先进入资料审核流程。
+现场通用模块的接口、职责和操作见[现场接入说明](field-ingestion.md)。持久收据`durable=true`表示服务端已保管批次，`completed`表示已原子入库；两端失败均保留可回查状态。测值时间保留源时间，补传可用时间按实际入库记录。接入停用仍可持久接收，重新启用后按顺序补传，冲突批次保留待核。
+
+实际监测系统适配需要：接口协议与认证方式、访问网络、字段及响应样例、点位编号和单位、采样/上传周期、增量游标及上游历史补查能力。本轮本机缓存向回环HTTP发送，真实数据保持本机；上游停采期间的完整恢复取决于监测系统保存与补查能力。正式规则与建议发布还需核对矿井有效规则、作业规程版本和审核权限；现有作业规程先进入资料审核流程。
 
 本文件确定模块设计和验收顺序；当前代码状态以[实现记录](implementation-status.md)及实际接口为准。环境、权重、数据和运行产物沿用 F 盘目录，GitHub 同步源码与文档。

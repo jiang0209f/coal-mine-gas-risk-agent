@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     runtime_dir: Path = PROJECT_ROOT / "local_data"
     database_url: str | None = None
     model_catalog_path: Path | None = None
+    ingestion_worker_enabled: bool = True
     deepseek_api_key: SecretStr | None = None
     deepseek_base_url: AnyHttpUrl = "https://api.deepseek.com"
     deepseek_model: str = Field(default="deepseek-flash", min_length=1)

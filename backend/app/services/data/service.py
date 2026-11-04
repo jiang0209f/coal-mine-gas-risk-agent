@@ -81,14 +81,14 @@ class DataService:
             raise DomainError("同一数据源的源标签已映射", "conflict", 409)
         return self.store.put("point", point_id, point)
 
-    def _source(self, source_id):
-        source = self.store.get("source", source_id)
+    def _source(self, source_id, connection=None):
+        source = self.store.get("source", source_id, connection)
         if source is None:
             raise DomainError("数据源不存在", "not_found", 404)
         return source
 
-    def _point(self, point_id):
-        point = self.store.get("point", point_id)
+    def _point(self, point_id, connection=None):
+        point = self.store.get("point", point_id, connection)
         if point is None:
             raise DomainError("点位不存在", "not_found", 404)
         return point
@@ -303,10 +303,10 @@ class DataService:
             self.store.put("data_import", import_id, report, connection)
             return report
 
-    def ingest_readings(self, actor, source_id, readings, received_at=None):
+    def ingest_readings(self, actor, source_id, readings, received_at=None, *, connection=None):
         """适配现有监测系统的统一入口，接收时间由服务端确定。"""
         actor.require_role("safety_management")
-        actor.require_face(self._source(source_id)["face_id"])
+        actor.require_face(self._source(source_id, connection)["face_id"])
         if not isinstance(readings, list) or not 1 <= len(readings) <= 10000:
             raise DomainError("单次接收须为1至10000条测值")
         arrived = utcstr(received_at or now_utc())
@@ -314,7 +314,7 @@ class DataService:
         for reading in readings:
             if not isinstance(reading, dict) or not isinstance(reading.get("reading_id"), str) or not reading["reading_id"]:
                 raise DomainError("实时测值需要稳定的reading_id")
-            point = self._point(reading.get("point_id"))
+            point = self._point(reading.get("point_id"), connection)
             if point["source_id"] != source_id:
                 raise DomainError("实时点位与数据源不符", "forbidden", 403)
             event = reading.get("event_time")
@@ -337,15 +337,20 @@ class DataService:
                 flags.append("unit_inferred")
             if point["lineage"] != "raw":
                 flags.append("lineage_" + point["lineage"])
-            key = hashlib.sha256(f"live:{source_id}:{point['point_id']}:{reading['reading_id']}".encode()).hexdigest()
-            batch.append(dict(id=key, point_id=point["point_id"], source_id=source_id, event_time=event,
+            identity = json.dumps(["live", source_id, point["point_id"], reading["reading_id"]],
+                                  separators=(",", ":"), ensure_ascii=False)
+            key = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+            legacy_key = hashlib.sha256(f"live:{source_id}:{point['point_id']}:{reading['reading_id']}".encode()).hexdigest()
+            batch.append((dict(id=key, point_id=point["point_id"], source_id=source_id, event_time=event,
                               available_at=arrived, value=value, raw_value=None if raw is None else str(raw),
                               quality_flags=flags, source_file_id="live:" + source_id, row_number=0,
-                              import_id="live:" + reading["reading_id"]))
+                              import_id="live:" + reading["reading_id"]), legacy_key))
         imported = 0
-        with self.store.transaction() as connection:
-            for row in batch:
-                existing = connection.execute(select(observations).where(observations.c.id == row["id"])).mappings().first()
+        with self.store._connection(connection) as connection:
+            for row, legacy_key in batch:
+                existing = connection.execute(select(observations).where(
+                    observations.c.id.in_((row["id"], legacy_key)), observations.c.source_id == row["source_id"],
+                    observations.c.point_id == row["point_id"], observations.c.import_id == row["import_id"])).mappings().first()
                 if existing:
                     if any(existing[k] != row[k] for k in ("event_time", "raw_value", "point_id")):
                         raise DomainError("同一reading_id的测值内容冲突", "conflict", 409)

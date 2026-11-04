@@ -1,0 +1,10 @@
+{
+  "readings": [
+    {
+      "reading_id": "synthetic-standard-20260101-0001",
+      "point_id": "synthetic-ingestion-point",
+      "event_time": "2026-01-01T08:00:00+08:00",
+      "raw_value": 0.42
+    }
+  ]
+}

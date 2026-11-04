@@ -16,6 +16,8 @@ FEDformer＋LightGBM 预测和 KMeans/SVC 候选溯源已用31002六通道加工
 
 [回放与冻结评估](docs/replay-evaluation.md)已接通会话动作审计、关联重放、只读记录采集、报告冻结、本地JSON导出及指标分页回查。报告保留范围、模型与规则、三类冻结摘要、分子分母和原始观测引用；缺样本、未评估及零分母显示具体原因。
 
+[现场数据接入](docs/field-ingestion.md)已提供标准JSON和字段/点位映射、本机采集缓存、服务端持久队列、断线补传、双层去重及状态页面。配置登记后显式启用；收据确认持久接收，完成状态确认入库。具体监测系统的采集协议、认证和增量游标待接口资料确定。
+
 ## 安装与启动
 
 Python 3.11+、Node.js 22+：
@@ -48,7 +50,7 @@ cd ..
 python -m app.scripts.import_history --path "数据.xlsx" --source-id history-31002 --face-id 31002 --point-id 31002:T0 --source-tag T0_044A02 --start 2022-01-01 --end 2023-01-01
 ```
 
-现场系统提交到已认证的 `POST /api/ingest`：`{source_id,readings:[{reading_id,point_id,event_time,raw_value}]}`。时间须带时区，接收时间由服务端记录，稳定的reading_id用于重试去重。现场专有协议由适配器转换为该格式。
+现场接入通过 `POST /api/ingestion/connectors`登记适配配置，向 `POST /api/ingestion/connectors/{connector_id}/batches`提交`{batch_id,payload}`。服务先持久接收，再由后台任务写入标准观测；本机`app.scripts.ingestion_bridge`缓存未确认批次并补传。稳定的批次编号和测值编号分别去重；冲突批次留存待核。来源时间按配置转换，`available_at`使用实际入库时间，补传观测沿用会话查询规则。旧的即时标准入口`POST /api/ingest`继续可用，具体字段及CLI见[现场接入说明](docs/field-ingestion.md)。
 
 ## 工作流
 

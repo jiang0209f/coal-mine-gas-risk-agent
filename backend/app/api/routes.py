@@ -95,6 +95,30 @@ class SessionEvaluation(Payload):
     tolerance_seconds: float = Field(default=0, ge=0, allow_inf_nan=False)
 
 
+class IngestionConnector(Payload):
+    connector_id: str | None = Field(default=None, min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=200)
+    source_id: str = Field(min_length=1)
+    adapter_kind: Literal["standard_json", "mapped_json"] = "standard_json"
+    mapping: dict = Field(default_factory=dict)
+    tag_map: dict[str, str] = Field(default_factory=dict)
+    enabled: bool = False
+    stale_after_seconds: int = Field(default=120, ge=1)
+
+
+class IngestionAction(Payload):
+    action: Literal["enable", "pause", "retry"]
+
+
+class IngestionBatch(Payload):
+    batch_id: str = Field(min_length=1, max_length=200)
+    payload: dict | list
+
+
+class IngestionHeartbeat(Payload):
+    pass
+
+
 class Forecast(Payload):
     session_id: str
     point_id: str
@@ -249,6 +273,55 @@ def ingest(body: dict = Body(), a=Depends(actor), s=Depends(services)):
     if set(body) != {"source_id", "readings"}:
         raise DomainError("实时接收需要source_id与readings")
     return s["data"].ingest_readings(a, body["source_id"], body["readings"])
+
+
+@router.get("/ingestion/status")
+def ingestion_status(request: Request, source_id: str | None = None, a=Depends(actor), s=Depends(services)):
+    connectors = s["ingestion"].list_connectors(a, source_id)
+    status = request.app.state.ingestion_worker_status
+    return {"source_id": source_id, "connectors": connectors,
+            "worker": {key: status.get(key) for key in ("enabled", "state", "last_run_at", "last_success_at", "last_error_code")}}
+
+
+@router.get("/ingestion/connectors")
+def ingestion_connectors(source_id: str | None = None, a=Depends(actor), s=Depends(services)):
+    return s["ingestion"].list_connectors(a, source_id)
+
+
+@router.post("/ingestion/connectors")
+def create_ingestion_connector(body: IngestionConnector, a=Depends(actor), s=Depends(services)):
+    return s["ingestion"].create_connector(a, body.model_dump(exclude_none=True))
+
+
+@router.get("/ingestion/connectors/{connector_id}")
+def ingestion_connector(connector_id: str, a=Depends(actor), s=Depends(services)):
+    return s["ingestion"].get_connector(a, connector_id)
+
+
+@router.post("/ingestion/connectors/{connector_id}/actions")
+def ingestion_action(connector_id: str, body: IngestionAction, a=Depends(actor), s=Depends(services)):
+    return s["ingestion"].action(a, connector_id, body.action)
+
+
+@router.post("/ingestion/connectors/{connector_id}/heartbeat")
+def ingestion_heartbeat(connector_id: str, body: IngestionHeartbeat | None = None, a=Depends(actor), s=Depends(services)):
+    return s["ingestion"].heartbeat(a, connector_id)
+
+
+@router.post("/ingestion/connectors/{connector_id}/batches")
+def submit_ingestion_batch(connector_id: str, body: IngestionBatch, a=Depends(actor), s=Depends(services)):
+    return s["ingestion"].submit_batch(a, connector_id, body.batch_id, body.payload)
+
+
+@router.get("/ingestion/connectors/{connector_id}/batches")
+def ingestion_batches(connector_id: str, offset: int = Query(default=0, ge=0), limit: int = Query(default=50, ge=1, le=200),
+                      a=Depends(actor), s=Depends(services)):
+    return s["ingestion"].list_batches(a, connector_id, offset, limit)
+
+
+@router.get("/ingestion/connectors/{connector_id}/batches/{batch_id:path}")
+def ingestion_batch(connector_id: str, batch_id: str, a=Depends(actor), s=Depends(services)):
+    return s["ingestion"].get_batch(a, connector_id, batch_id)
 
 
 @router.get("/sessions")

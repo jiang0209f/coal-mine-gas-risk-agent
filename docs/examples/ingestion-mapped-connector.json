@@ -1,0 +1,20 @@
+{
+  "connector_id": "synthetic-mapped-connector",
+  "name": "合成字段映射接入",
+  "source_id": "synthetic-ingestion-source",
+  "adapter_kind": "mapped_json",
+  "mapping": {
+    "records_path": "data.rows",
+    "id_field": "record_id",
+    "tag_field": "tag",
+    "time_field": "collected_at",
+    "value_field": "value",
+    "sequence_field": "sequence",
+    "timezone": "+08:00"
+  },
+  "tag_map": {
+    "SYNTH-T0": "synthetic-ingestion-point"
+  },
+  "enabled": false,
+  "stale_after_seconds": 120
+}
