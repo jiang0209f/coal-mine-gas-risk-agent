@@ -1,0 +1,15 @@
+# One-time offline ONNX export; not required by the running backend.
+-r requirements-models-cpu-win.lock.txt
+charset-normalizer==3.5.2
+huggingface_hub==0.36.2
+ml_dtypes==0.6.0
+onnx==1.23.2
+protobuf==7.36.2
+PyYAML==6.0.3
+regex==2026.9.29
+requests==2.34.2
+safetensors==0.8.0
+tokenizers==0.22.2
+tqdm==4.70.1
+transformers==4.57.6
+urllib3==2.8.0

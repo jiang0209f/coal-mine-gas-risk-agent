@@ -94,6 +94,15 @@ def agent_parts():
         ),
         "cases": SimpleNamespace(get_case=capture("get_case", {"case_id": "case1"})),
     }
+    # This mock represents explicitly public synthetic passages. Real-service
+    # policy tests separately verify that local-only materials fail closed.
+    public_rows = {"ref1": {"reference_id": "ref1", "text": "Synthetic public passage.", "locator": {"page": 1}}}
+    def public_search(**kwargs):
+        rows = services["knowledge"].search_documents(**kwargs)
+        public_rows.update({row["reference_id"]: deepcopy(row) for row in rows})
+        return rows
+    services["knowledge"].search_public_documents = public_search
+    services["knowledge"].approved_public_fragment = lambda context, reference_id: deepcopy(public_rows[reference_id])
     yield store, actor, context, services, calls
     store.close()
 
@@ -641,6 +650,8 @@ def test_real_services_advice_tool_preserves_event_revision_and_approved_referen
             "locator": {"page": 1},
         })
         knowledge.review_reference(actor, document["document_id"], "v1", "approved")
+        knowledge.set_disclosure(actor, document["document_id"], "v1", "public_normative",
+            official_url="https://www.mem.gov.cn/synthetic-test.pdf", category="standard", comment="Synthetic public test fixture")
         reference = knowledge.search_documents(context, "Synthetic")[0]
         prediction = PredictionService(store, data)
         services = {"data": data, "sessions": sessions, "alerts": alerts, "prediction": prediction,

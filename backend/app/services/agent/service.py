@@ -220,11 +220,19 @@ class AgentService:
                 "face_id": source["face_id"], "as_of": utcstr(context.as_of),
                 "available_models": available_models, "available_points": available_points,
             }, ensure_ascii=False)}]
+            inherited_public_refs = set()
             history = [item for item in self.store.list("task")
                        if item.get("task_type") != "event_brief" and item["actor_id"] == context.actor.user_id and item["session_id"] == context.session_id
                        and item["source_id"] == context.source_id and item["state"] in ("completed", "partial")
                        and datetime.fromisoformat(item.get("conversation_as_of", item["as_of"])) <= context.as_of]
+            cloud = context.source_id in self.settings.event_brief_allowed_source_ids and self.settings.deepseek_configured
             for turn in sorted(history, key=lambda item: item["created_at"])[-6:]:
+                if cloud and not self._cloud_history_safe(context, turn):
+                    continue
+                if cloud:
+                    inherited_public_refs.update(turn.get("cloud_reference_ids", []))
+                    for card in turn.get("result_cards", [])[turn.get("cloud_card_start", 0):]:
+                        inherited_public_refs.update(ref["reference_id"] for ref in self._references(card.get("data")) if ref.get("reference_id"))
                 messages.extend([{"role": "user", "content": turn["question"]},
                                  {"role": "assistant", "content": turn["final_text"]}])
             messages.append({"role": "user", "content": question})
@@ -237,6 +245,8 @@ class AgentService:
                 "messages": messages, "tool_calls": [], "result_cards": [], "evidence_refs": [],
                 "missing_fields": [], "usage": {}, "model": None, "final_text": "",
                 "created_at": utcstr(now_utc()),
+                "cloud_reference_ids": sorted(inherited_public_refs),
+                "cloud_public_policy_version": 1 if cloud else None, "cloud_card_start": 0,
             }
         if selected_point is not None:
             task["selected_point_id"] = selected_point
@@ -255,6 +265,26 @@ class AgentService:
         if service is None:
             raise DomainError("所需业务服务未接入", code="service_unavailable", status_code=503)
         return service
+
+    def _cloud_history_safe(self, context, task):
+        if task.get("cloud_public_policy_version") != 1 or task.get("local_reason") or task.get("method") != "deepseek":
+            return False
+        knowledge = self.services.get("knowledge")
+        try:
+            for reference_id in task.get("cloud_reference_ids", []):
+                knowledge.approved_public_fragment(context, reference_id)
+        except (AttributeError, DomainError):
+            return False
+        for card in task.get("result_cards", [])[task.get("cloud_card_start", 0):]:
+            if card.get("tool") in ("search_documents", "draft_advice"):
+                for reference in self._references(card.get("data")):
+                    if not reference.get("reference_id"):
+                        continue
+                    try:
+                        knowledge.approved_public_fragment(context, reference["reference_id"])
+                    except (AttributeError, DomainError):
+                        return False
+        return True
 
     def _execute(self, context: ExecutionContext, name: str, arguments: dict):
         values = deepcopy(arguments)
@@ -276,11 +306,21 @@ class AgentService:
         if name == "search_documents":
             event_id = values.pop("event_id", None)
             scope = self._service("alerts").get_event_snapshot(context=context, event_id=event_id) if event_id else None
-            return self._service("knowledge").search_documents(context=context, event_scope=scope, **values)
+            knowledge = self._service("knowledge")
+            if self.settings.deepseek_configured and context.source_id in self.settings.event_brief_allowed_source_ids:
+                rows = knowledge.search_public_documents(context=context, event_scope=scope, **values)
+                return [knowledge.approved_public_fragment(context, row["reference_id"]) for row in rows]
+            return knowledge.search_documents(context=context, event_scope=scope, **values)
         if name == "draft_advice":
+            public = None
+            if self.settings.deepseek_configured and context.source_id in self.settings.event_brief_allowed_source_ids:
+                public = {reference_id: self._service("knowledge").approved_public_fragment(context, reference_id)
+                          for reference_id in values["reference_ids"]}
             evidence = self._service("traceability").get_event_evidence(context=context, event_id=values.pop("event_id"))
             advice = self._service("knowledge").draft_advice(context=context, evidence_bundle=evidence, **values)
             advice = deepcopy(advice)
+            if public is not None and "items" in advice:
+                advice["items"] = [public[reference_id] for reference_id in advice["reference_ids"]]
             event = evidence.get("event_snapshot", evidence.get("event", {}))
             advice["evidence_refs"] = list(advice.get("evidence_refs", [])) + list(evidence.get("evidence_refs", []))
             if event.get("event_id"):
@@ -478,7 +518,10 @@ class AgentService:
             if not data:
                 return finish("当前工作面未检索到符合关键词的已审核、现行有效资料。")
             lines = [f"{item.get('title', item['source'])}（版本{item['version']}，{json.dumps(item.get('locator', {}), ensure_ascii=False)}）：{item['text'][:600]} [reference_id={item['reference_id']}]" for item in data[:3]]
-            return finish(f"本机检索命中{len(data)}条已审核有效资料，展示前{min(3, len(data))}条：\n"+"\n".join(lines))
+            conflict = any(item.get("conflict_status") in ("open", "possible_conflict") for item in data)
+            notice = "条文存在未解决分歧，按登记的适用条件并列核对原文，当前不确定定值或周期。\n" if conflict else ""
+            return finish(notice+f"本机检索命中{len(data)}条已审核有效资料，展示前{min(3, len(data))}条：\n"+"\n".join(lines),
+                          "partial" if conflict else "completed", ["knowledge_conflict_resolution"] if conflict else [])
         if name == "get_event_evidence":
             event = data.get("event_snapshot", data.get("event", {}))
             return finish(f"事件{arguments['event_id']}第{event.get('event_revision', '?')}版，等级{event.get('alert_level', '待核')}；原始监测片段{len(data.get('observation_fragments', []))}条，规则版本{data.get('rules', {}).get('rule_version', event.get('rule_version', '待核'))}。依据与候选溯源见结果卡及引用。", "partial" if data.get("missing_fields") else "completed", data.get("missing_fields", []))
@@ -537,12 +580,20 @@ class AgentService:
         current = self.store.get("task", task["task_id"])
         if current["state"] == "cancelled":
             return current
-        task.pop("local_reason", None)
+        was_local = task.pop("local_reason", None)
         if context.source_id not in self.settings.event_brief_allowed_source_ids:
             task["local_reason"] = "cloud_source_not_authorized"
             return self._template(task, context)
         if not self.settings.deepseek_configured:
             return self._template(task, context)
+        if was_local or not self._cloud_history_safe(context, task):
+            systems = [message for message in task["messages"] if message.get("role") == "system"][:1]
+            users = [message for message in task["messages"] if message.get("role") == "user"][-1:]
+            task["messages"] = systems + users
+            task["cloud_reference_ids"] = []
+            task["cloud_card_start"] = len(task.get("result_cards", []))
+        task["cloud_public_policy_version"] = 1
+        task["method"] = "deepseek"
         adapter = None
         started = perf_counter()
         call_start, card_start = len(task["tool_calls"]), len(task["result_cards"])
@@ -558,6 +609,9 @@ class AgentService:
                 if perf_counter() - started >= 60:
                     task["error_code"] = "tool_time_budget_exceeded"
                     break
+                if not self._cloud_history_safe(context, task):
+                    task.update(state="partial", error_code="public_reference_unavailable", final_text="公开引用的授权或有效性已变化，请重新检索当前公开资料。")
+                    return self._save(task)
                 response = adapter.chat(deepcopy(task["messages"]), tools=deepcopy(self.tools), tool_choice=tool_choice)
                 tool_choice = "auto"
                 current = self.store.get("task", task["task_id"])

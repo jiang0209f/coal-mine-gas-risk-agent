@@ -9,16 +9,19 @@ const emit = defineEmits(['refresh', 'notice', 'error'])
 const detail = ref(null), fileMetadata = ref(null), selectedFile = ref(null), mode = ref('file'), loading = ref(false), working = ref(false)
 const updatingEntry = ref(null)
 const search = ref(''), results = ref([]), searched = ref(false), stateFilter = ref(''), reviewComment = ref('')
+const publicAnswer = ref(null), publicBusy = ref(false), publicQuestion = ref('')
 const fileSelection = ref(0)
 const form = ref({ title: '', source: '', version: '1', text: '', page: 1, validFrom: '', validTo: '' })
 const detailRequests = createRequestGuard(), searchRequests = createRequestGuard()
+const publicRequests = createRequestGuard()
 const scope = () => JSON.stringify([props.faceId, props.sourceId, props.session?.session_id, props.session?.source_id])
 const entries = computed(() => (props.entries || []).filter(item => (!item.applicability?.face_ids || item.applicability.face_ids.includes(props.faceId)) && (!stateFilter.value || item.state === stateFilter.value)))
 const names = { approved: '已批准', rejected: '已拒绝', pending_review: '待审核', draft: '草稿', superseded: '已替代' }
 const effectiveNames = { expired: '已过期', not_effective: '未生效' }
 
-watch(scope, () => { detailRequests.invalidate(); searchRequests.invalidate(); detail.value = null; fileMetadata.value = null; loading.value = false; results.value = []; searched.value = false; reviewComment.value = ''; resetForm() })
-onBeforeUnmount(() => { detailRequests.invalidate(); searchRequests.invalidate() })
+watch(scope, () => { detailRequests.invalidate(); searchRequests.invalidate(); publicRequests.invalidate(); publicAnswer.value = null; publicBusy.value = false; detail.value = null; fileMetadata.value = null; loading.value = false; results.value = []; searched.value = false; reviewComment.value = ''; resetForm() })
+watch(search, () => { publicRequests.invalidate(); publicAnswer.value = null; publicBusy.value = false })
+onBeforeUnmount(() => { detailRequests.invalidate(); searchRequests.invalidate(); publicRequests.invalidate() })
 async function act(callback) {
   working.value = true
   try { await callback() } catch (error) { emit('error', error.message) } finally { working.value = false }
@@ -90,6 +93,24 @@ async function find() {
     if (searchRequests.isCurrent(request) && requestedScope === scope()) { results.value = found; searched.value = true }
   })
 }
+async function askPublic() {
+  const session = props.session, question = search.value.trim()
+  if (!session || !question || publicBusy.value) return
+  const request = publicRequests.begin(), requestedScope = scope()
+  publicBusy.value = true; publicAnswer.value = null; publicQuestion.value = question
+  try {
+    const result = await props.api('/references/public-answer', { method: 'POST', body: { session_id: session.session_id, query: question } })
+    if (publicRequests.isCurrent(request) && requestedScope === scope() && search.value.trim() === question) publicAnswer.value = result
+  } catch (error) { if (publicRequests.isCurrent(request)) emit('error', error.message) }
+  finally { if (publicRequests.isCurrent(request)) publicBusy.value = false }
+}
+async function openReference(reference) {
+  const requestedScope = scope()
+  await act(async () => {
+    const fragment = await props.api(`/references/fragments/${encodeURIComponent(reference.reference_id)}`)
+    if (requestedScope === scope()) await openDocument(fragment)
+  })
+}
 async function download() {
   await act(async () => {
     const file = fileMetadata.value
@@ -120,12 +141,24 @@ function close() { detailRequests.invalidate(); detail.value = null; fileMetadat
         <form v-if="safety && detail.state === 'pending_review'" class="review-form" @submit.prevent="review('approved')"><label>审核说明<textarea v-model="reviewComment" rows="2"></textarea></label><div class="button-group"><button class="primary small" :disabled="working || referenceValidity(detail) !== 'current'">{{ detail.kind === 'experience' ? '批准经验' : '批准资料' }}</button><button type="button" class="ghost small" :disabled="working" @click="review('rejected')">{{ detail.kind === 'experience' ? '拒绝经验' : '拒绝资料' }}</button></div></form>
       </template>
     </section>
-    <section class="panel"><div class="section-heading"><div><h2>已批准资料检索</h2><p>检索现行已批准版本，保留来源和页段定位。</p></div></div><form class="search-form" @submit.prevent="find"><input v-model="search" aria-label="资料检索关键词" placeholder="输入关键词"><button class="primary" :disabled="!session || working">检索</button></form><p v-if="results[0]?.knowledge_as_of" class="muted">资料核验时点：{{ mineTime(results[0].knowledge_as_of) }}</p><p v-if="!session" class="muted">选择会话后检索适用资料。</p><article v-for="item in results" :key="item.reference_id" class="reference-card"><span class="tag teal">{{ item.kind === 'experience' ? '已批准经验' : '已批准条文' }}</span><p>{{ item.text }}</p><small>{{ item.source }} · 版本 {{ item.version }} · {{ referenceLocation(item.locator) }}</small><button class="ghost small" :disabled="!item.entry_id && !item.document_id" @click="openDocument(item)">查看引用原文</button></article><p v-if="searched && !results.length" class="muted">没有匹配的已批准资料。</p></section>
+    <section class="panel"><div class="section-heading"><div><h2>已批准资料检索</h2><p>按问题检索现行条文，查看来源、排序依据和条文分歧。</p></div></div>
+      <form class="search-form" @submit.prevent="find"><input v-model="search" aria-label="资料检索关键词" placeholder="输入问题或条款编号"><button class="primary" :disabled="!session || working">检索</button><button type="button" class="secondary" :disabled="!session || !search.trim() || publicBusy" @click="askPublic">{{ publicBusy ? '正在解读' : '解读公开条文' }}</button></form>
+      <p class="muted">DeepSeek只接收公开法规标准条文；提问内容用于本机检索。</p>
+      <p v-if="results[0]?.knowledge_as_of" class="muted">资料核验时点：{{ mineTime(results[0].knowledge_as_of) }}</p><p v-if="!session" class="muted">选择会话后检索适用资料。</p>
+      <article v-for="item in results" :key="item.reference_id" class="reference-card"><span class="tag teal">{{ item.kind === 'experience' ? '已批准经验' : '已批准条文' }}</span>
+        <span v-if="['open','possible_conflict'].includes(item.conflict_status)" class="tag amber">条文分歧待核</span><span v-if="item.conflict_status === 'resolved'" class="tag teal">分歧已有核验依据</span>
+        <div v-for="conflict in item.conflicts || []" :key="conflict.conflict_id" class="clause-conflict"><strong>{{ conflict.topic }}</strong><p>{{ conflict.reason }}</p><small>{{ conflict.applicability_condition }}</small><button v-for="reference in conflict.references || []" :key="reference.reference_id || reference.entry_id" type="button" class="ghost small" :disabled="!reference.reference_id || working" @click="openReference(reference)">查看对照原文</button></div>
+        <p>{{ item.text }}</p><small>{{ item.source }} · 版本 {{ item.version }} · {{ referenceLocation(item.locator) }}</small>
+        <details v-if="item.rerank_reasons?.length"><summary>检索与排序依据</summary><ul><li v-for="reason in item.rerank_reasons" :key="reason">{{ reason }}</li></ul><small v-if="item.embedding_status && item.embedding_status !== 'available'">当前使用词法和同义词检索</small></details>
+        <button class="ghost small" :disabled="!item.entry_id && !item.document_id" @click="openDocument(item)">查看引用原文</button></article><p v-if="searched && !results.length" class="muted">没有匹配的已批准资料。</p>
+    </section>
     <section v-if="safety" class="panel"><div class="section-heading"><div><h2>{{ updatingEntry ? '更新资料版本' : '资料入库' }}</h2><p>{{ updatingEntry ? '当前版本 ' + updatingEntry.version + '，请登记新的版本编号。' : '登记来源和版本后送交审核。' }}</p></div></div><button v-if="updatingEntry" class="ghost small" :disabled="working" @click="resetForm">取消更新</button><div class="button-group import-modes"><button class="secondary small" :class="{ active: mode === 'file' }" @click="mode = 'file'">上传文档</button><button class="secondary small" :class="{ active: mode === 'text' }" @click="mode = 'text'">录入条文</button></div><form @submit.prevent="importDocument"><label v-if="mode === 'file'">资料文件<input :key="fileSelection" type="file" aria-label="资料文件" accept=".pdf,.docx,.txt,.md" @change="selectFile"><small>PDF、DOCX、TXT、MD，单个文件上限20 MiB。</small></label><div class="form-row"><label>资料名称<input v-model="form.title" required></label><label>资料来源<input v-model="form.source" required></label></div><div class="form-row"><label>资料版本<input v-model="form.version" required></label><label v-if="mode === 'text'">条文页码<input v-model="form.page" type="number" min="1" required></label></div><div class="form-row"><label>生效时间<input v-model="form.validFrom" type="datetime-local"></label><label>失效时间<input v-model="form.validTo" type="datetime-local"></label></div><p class="muted">适用期可留空；失效时间起不再适用。</p><label v-if="mode === 'text'">条文原文<textarea v-model="form.text" rows="5" required></textarea></label><button class="primary" :disabled="!faceId || working || (mode === 'file' && !selectedFile)">{{ mode === 'file' ? '上传并送审' : '登记并送审' }}</button></form></section>
+    <section v-if="publicAnswer || publicBusy" class="panel public-knowledge-answer" role="region" aria-label="公开条文解读"><div class="section-heading"><div><h2>公开条文解读</h2><p>检索问题：{{ publicQuestion }}</p></div><span class="tag teal">DeepSeek</span></div><p v-if="publicBusy" class="muted">正在依据公开条文生成解读…</p><template v-else><p class="public-answer-text">{{ publicAnswer.final_text || publicAnswer.answer }}</p><p v-if="publicAnswer.state !== 'completed'" class="hint amber-text">解读尚未完成，已保留本机检索出处。</p><div class="public-reference-list"><article v-for="reference in publicAnswer.references || []" :key="reference.reference_id" class="reference-card"><strong>{{ reference.public_reference_id }} · {{ reference.title }}</strong><small>版本 {{ reference.version }} · {{ referenceLocation(reference.locator) }}</small><button class="ghost small" :disabled="working" @click="openReference(reference)">查看公开引用 {{ reference.public_reference_id }}</button></article></div></template></section>
   </div>
 </template>
 
 <style scoped>
+.search-form{flex-wrap:wrap;gap:8px}.search-form input{flex:1;min-width:150px}.public-knowledge-answer{grid-column:1/-1}.public-answer-text{white-space:pre-wrap;line-height:1.9;overflow-wrap:anywhere}.public-reference-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:12px}.clause-conflict{border-left:3px solid #d8a94a;background:#2c2d27;padding:12px;margin-top:10px}.clause-conflict p{margin:6px 0}.clause-conflict small{display:block}.clause-conflict button{margin-top:8px;margin-right:6px}.reference-card details{margin-top:12px;font-size:12px}.reference-card details ul{padding-left:18px;line-height:1.8}
 .knowledge-workspace{display:grid;gap:18px;min-width:0}.state-filter{display:flex;align-items:center;gap:10px;max-width:270px;margin-bottom:10px;white-space:nowrap}.state-filter select{margin:0;min-width:0;flex:1;width:auto}.document-row{gap:10px}.document-name{flex:1;min-width:0}.document-name strong,.document-name small{overflow-wrap:anywhere}.original-panel{min-width:0}.original-fragment{padding:13px 14px;margin-top:12px;background:#102b40;border:1px solid #294a62;border-radius:4px}.original-fragment>strong{color:#80c9db;font-size:12px;font-weight:500}.original-fragment>p{white-space:pre-wrap;line-height:1.9;margin:8px 0 0;overflow-wrap:anywhere}.review-record{border-top:1px solid #294a62;padding-top:14px;margin-top:17px}.review-record p{font-size:13px;line-height:1.7}.review-form{margin-top:17px}.file-summary{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px}.file-summary>small{flex-basis:100%;overflow-wrap:anywhere}.import-modes{margin-bottom:17px}.import-modes .active{border-color:#55b8d1;color:#a9e3ed}.reference-card>small{display:block;overflow-wrap:anywhere}.reference-card>button{margin-top:9px}.original-panel .section-heading>div{min-width:0}.original-panel h2,.original-panel .section-heading p{overflow-wrap:anywhere}
 @media(max-width:760px){.knowledge-workspace{gap:12px}.document-row{align-items:flex-start}.document-name{flex-basis:100%}.file-summary{align-items:flex-start}.original-fragment{padding:10px}.original-panel .section-heading{align-items:flex-start}.original-panel .section-heading>button{flex-shrink:0}}
 </style>

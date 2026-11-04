@@ -1,0 +1,13 @@
+# Windows x64 / Python 3.12: backend plus offline CPU text embeddings.
+-r requirements-dev.lock.txt
+filelock==4.2.8
+flatbuffers==25.12.19
+fsspec==2026.9.0
+hf-xet==1.8.0
+huggingface_hub==1.33.0
+numpy==2.5.4
+onnxruntime==1.31.1
+protobuf==7.36.2
+PyYAML==6.0.3
+tokenizers==0.22.2
+tqdm==4.70.1

@@ -1,16 +1,21 @@
 """有审核状态和页段出处的资料、建议与经验。"""
 
 from datetime import datetime
+from copy import deepcopy
 import hashlib
 from io import BytesIO
+import json
 from pathlib import Path
 import re
+from urllib.parse import urlsplit
 from uuid import uuid4
 from zipfile import ZipFile
 
 from app.db import Store
 from app.schemas.common import Actor, DomainError, ExecutionContext, now_utc, utcstr
 from app.services.auth.service import AuthService
+from app.services.knowledge.conflicts import annotate_conflicts
+from app.services.knowledge.retrieval import retrieve
 
 __all__ = ["KnowledgeService"]
 
@@ -20,12 +25,13 @@ _MEDIA_TYPES = {".txt": "text/plain; charset=utf-8", ".md": "text/markdown; char
 
 
 class KnowledgeService:
-    def __init__(self, store: Store, allowed_roots=None, upload_dir=None, clock=now_utc) -> None:
+    def __init__(self, store: Store, allowed_roots=None, upload_dir=None, clock=now_utc, embedding=None) -> None:
         self.store = store
         self.auth = AuthService(store)
         self.allowed_roots = [Path(path).resolve() for path in (allowed_roots or [])]
         self.upload_dir = Path(upload_dir).resolve() if upload_dir is not None else None
         self.clock = clock
+        self.embedding = embedding
 
     def upload_file(self, actor: Actor, filename: str, content: bytes, face_ids=None) -> dict:
         self.auth.authorize(actor, "manage_data")
@@ -171,7 +177,8 @@ class KnowledgeService:
     ) -> list[dict]:
         self.auth.authorize(actor, "read", face_id)
         entries = self.store.list("reference") + self.store.list("experience")
-        return [entry for entry in entries if
+        policies = {self._key(row["entry_id"], row["version"]): row for row in self.store.list("knowledge_disclosure")}
+        return [{**entry, "disclosure": policies.get(self._key(entry["entry_id"], entry["version"]), {}).get("disclosure", "local_only")} for entry in entries if
                 set(entry["applicability"]["face_ids"]).intersection(actor.face_ids)
                 and (face_id is None or face_id in entry["applicability"]["face_ids"])
                 and (state is None or entry["state"] == state)
@@ -201,33 +208,200 @@ class KnowledgeService:
                      if fragment["entry_id"] == entry_id
                      and str(fragment["version"]) == str(entry["version"])
                      and (locator is None or fragment["locator"] == locator)]
+        conflicts = [record for record in self.store.list("knowledge_conflict")
+                     if set(record.get("face_ids", [])).intersection(actor.face_ids)]
+        conflicts = self._effective_conflicts(conflicts, set(entry["applicability"]["face_ids"]).intersection(actor.face_ids))
+        fragments = annotate_conflicts(fragments, {"conflicts": conflicts})
         return {**entry, "fragments": sorted(fragments, key=lambda item: item.get("ordinal", 0))}
 
     def search_documents(self, context: ExecutionContext, query: str, event_scope=None) -> list[dict]:
+        return self._search(context, query, event_scope)
+
+    def search_public_documents(self, context: ExecutionContext, query: str, event_scope=None) -> list[dict]:
+        return self._search(context, query, event_scope, public_only=True)
+
+    def _candidates(self, context, event_scope=None, public_only=False):
         face_id = self._context_face(context, event_scope)
         self.auth.authorize(context.actor, "read", face_id)
-        if not isinstance(query, str):
-            raise DomainError("检索词必须为字符串")
         knowledge_as_of = self.clock()
-        terms = list(dict.fromkeys(term.casefold() for term in re.split(r"[\s,，、;；]+", query.strip()) if term))
-        found = []
-        for fragment in self.store.list("reference_fragment"):
+        documents = self.store.list("reference") + self.store.list("experience")
+        fragments = self.store.list("reference_fragment")
+        grouped = {}
+        for fragment in fragments:
+            grouped.setdefault(self._key(fragment["entry_id"], fragment["version"]), []).append(fragment)
+        policies = {self._key(row["entry_id"], row["version"]): row for row in self.store.list("knowledge_disclosure")} if public_only else {}
+        current = {}
+        for entry in documents:
+            if entry["state"] != "approved" or face_id not in entry["applicability"]["face_ids"]:
+                continue
             try:
-                approved = self._approved_fragment(
-                    fragment["reference_id"], face_id, context.mode == "realtime", knowledge_as_of
-                )
+                self._require_effective(entry["applicability"], knowledge_as_of)
             except DomainError:
                 continue
-            kind = "reference" if approved["kind"] == "document" else "experience"
-            entry = self.store.get(kind, self._key(approved["entry_id"], approved["version"]))
-            title = entry.get("title") or "案例经验"
-            haystack = " ".join((title, approved["source"], approved["text"])).casefold()
-            matched = [term for term in terms if term in haystack]
-            if terms and not matched:
+            if context.mode == "realtime" and entry.get("operation_context") == "rehearsal":
                 continue
-            found.append({**approved, "title": title, "score": len(matched), "matched_terms": matched,
-                          "knowledge_as_of": utcstr(knowledge_as_of)})
-        return sorted(found, key=lambda item: -item["score"])[:50]
+            key = self._key(entry["entry_id"], entry["version"])
+            if public_only and not self._valid_public_policy(entry, grouped.get(key, []), policies.get(key)):
+                continue
+            current[key] = entry
+        return [{**fragment, "title": current[key].get("title") or "案例经验", "knowledge_as_of": utcstr(knowledge_as_of)}
+                for fragment in fragments if (key := self._key(fragment["entry_id"], fragment["version"])) in current
+                and face_id in fragment["applicability"]["face_ids"]]
+
+    def _search(self, context, query, event_scope=None, public_only=False):
+        if not isinstance(query, str) or len(query) > 20000:
+            raise DomainError("检索词须为不超过20000字的字符串")
+        candidates = self._candidates(context, event_scope, public_only)
+        metadata = self._conflict_metadata(context, public_only)
+        candidates = annotate_conflicts(candidates, metadata)
+        try:
+            return retrieve(query, candidates, embedding=self.embedding)
+        except ValueError as error:
+            raise DomainError("检索参数或索引无效") from error
+
+    @staticmethod
+    def _official_url(value):
+        try:
+            parsed = urlsplit(value)
+            return (parsed.scheme == "https" and parsed.hostname is not None
+                    and (parsed.hostname == "gov.cn" or parsed.hostname.endswith(".gov.cn"))
+                    and parsed.username is None and parsed.password is None
+                    and parsed.port in (None, 443) and not parsed.fragment)
+        except (ValueError, TypeError, AttributeError):
+            return False
+
+    @staticmethod
+    def _body_digest(entry, fragments):
+        value = {"title": entry.get("title"), "source": entry["source"], "version": entry["version"],
+                 "fragments": [{key: row.get(key) for key in ("reference_id", "text", "locator", "ordinal")}
+                               for row in sorted(fragments, key=lambda row: row["reference_id"])]}
+        return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def _valid_public_policy(self, entry, fragments, policy):
+        try:
+            self._require_effective(entry["applicability"], self.clock())
+        except DomainError:
+            return False
+        return bool(entry.get("state") == "approved" and policy and entry.get("kind") == "document" and policy.get("disclosure") == "public_normative"
+                    and policy.get("category") in ("law", "regulation", "standard")
+                    and self._official_url(policy.get("official_url")) and fragments
+                    and policy.get("body_sha256") == self._body_digest(entry, fragments))
+
+    def set_disclosure(self, actor, entry_id, version, disclosure, *, official_url=None, category=None, comment=""):
+        self.auth.authorize(actor, "manage_data")
+        if disclosure not in ("local_only", "public_normative") or not isinstance(comment, str) or not comment.strip():
+            raise DomainError("外发分类须为local_only或public_normative并记录核验说明")
+        document = self.get_reference(actor, entry_id, version)
+        self._applicability(actor, document["applicability"])
+        if disclosure == "public_normative":
+            if (document.get("kind") != "document" or document["state"] != "approved"
+                    or category not in ("law", "regulation", "standard") or not self._official_url(official_url)):
+                raise DomainError("仅已批准且有HTTPS官方出处的公开法规标准可标为公开", code="forbidden", status_code=403)
+            self._require_effective(document["applicability"], self.clock())
+        policy = {"entry_id": entry_id, "version": version, "disclosure": disclosure, "official_url": official_url,
+                  "category": category, "comment": comment, "reviewed_by": actor.user_id,
+                  "reviewed_at": utcstr(self.clock()), "body_sha256": self._body_digest(document, document["fragments"])}
+        self.store.put("knowledge_disclosure", self._key(entry_id, version), policy)
+        return policy
+
+    @staticmethod
+    def _public_locator(locator):
+        result = {}
+        for key in ("page", "physical_page", "paragraph", "table", "row", "line", "chunk", "start_offset", "end_offset"):
+            if type(locator.get(key)) is int and locator[key] >= 0:
+                result[key] = locator[key]
+        if isinstance(locator.get("clause"), str) and re.fullmatch(r"[第〇一二三四五六七八九十百千万\d.．条章节款项()（）-]{1,80}", locator["clause"]):
+            result["clause"] = locator["clause"]
+        return result
+
+    def approved_public_fragment(self, context, reference_id):
+        candidates = self._candidates(context, public_only=True)
+        row = next((item for item in candidates if item["reference_id"] == reference_id), None)
+        if row is None:
+            raise DomainError("引用不是已批准、有效且授权公开的法规标准", code="public_reference_unavailable", status_code=403)
+        annotated = next(item for item in annotate_conflicts(candidates, self._conflict_metadata(context, True)) if item["reference_id"] == reference_id)
+        policy = self.store.get("knowledge_disclosure", self._key(row["entry_id"], row["version"]))
+        # Only public citation locators and explicit public conflict membership
+        # cross the boundary; local paths, scope, provenance and notes stay local.
+        conflicts = [{"conflict_id": hashlib.sha256(item["conflict_id"].encode()).hexdigest()[:16],
+                      "status": item["status"], "reference_ids": [ref["reference_id"] for ref in item["references"] if ref.get("reference_id")]}
+                     for item in annotated["conflicts"]]
+        return {"reference_id": reference_id, "entry_id": row["entry_id"], "document_id": row["entry_id"], "title": row["title"], "version": row["version"],
+                "text": row["text"], "locator": self._public_locator(row["locator"]),
+                "source": policy["official_url"], "official_url": policy["official_url"], "state": "approved", "effective": True,
+                "disclosure": "public_normative", "conflict_status": annotated["conflict_status"], "conflicts": conflicts}
+
+    def _conflict_metadata(self, context, public_only=False):
+        face_id = self._context_face(context)
+        records = [record for record in self.store.list("knowledge_conflict") if face_id in record.get("face_ids", [])]
+        records = self._effective_conflicts(records, {face_id})
+        if public_only:
+            public_rows = self._candidates(context, public_only=True)
+            public_ids = {row["reference_id"] for row in public_rows}
+            records = [record for record in records if record.get("disclosure") == "public_normative"
+                       and set(record.get("reference_ids", [])) <= public_ids
+                       and (not record.get("resolution_reference") or record["resolution_reference"].get("reference_id") in public_ids)]
+        return {"conflicts": records, "replacements": []}
+
+    def _effective_conflicts(self, records, face_ids):
+        result = deepcopy(records)
+        for record in result:
+            if record.get("status") == "resolved":
+                for face_id in set(record.get("face_ids", [])).intersection(face_ids):
+                    try:
+                        self._approved_fragment(record["resolution_reference"].get("reference_id"), face_id)
+                    except DomainError:
+                        record.update(status="open", reason=record["reason"]+"；解决依据当前已失效或不适用，须重新核对。")
+                        break
+        return result
+
+    def set_conflict(self, actor, record):
+        self.auth.authorize(actor, "manage_data")
+        if not isinstance(record, dict) or not isinstance(record.get("reference_ids"), list):
+            raise DomainError("冲突登记须明确绑定引用编号数组")
+        value = deepcopy(record)
+        references = []
+        for reference_id in value["reference_ids"]:
+            fragment = self.store.get("reference_fragment", reference_id)
+            if fragment is None:
+                raise DomainError("冲突引用不存在")
+            entry = self.get_reference(actor, fragment["entry_id"], fragment["version"])
+            self._applicability(actor, entry["applicability"])
+            references.append((entry, fragment))
+        faces = set.intersection(*(set(entry["applicability"]["face_ids"]) for entry, _ in references)) if references else set()
+        if not faces:
+            raise DomainError("冲突条文须有共同适用工作面")
+        value.setdefault("disclosure", "local_only")
+        if value["disclosure"] not in ("local_only", "public_normative"):
+            raise DomainError("冲突外发分类无效")
+        if value["disclosure"] == "public_normative":
+            for entry, _ in references:
+                policy = self.store.get("knowledge_disclosure", self._key(entry["entry_id"], entry["version"]))
+                if not self._valid_public_policy(entry, entry["fragments"], policy):
+                    raise DomainError("公开冲突的所有参与资料须已核准公开", code="forbidden", status_code=403)
+        if value.get("status") == "resolved":
+            resolution = value.get("resolution_reference", {}).get("reference_id")
+            if not resolution:
+                raise DomainError("解决冲突须登记核验依据引用")
+            for face_id in faces:
+                fragment = self._approved_fragment(resolution, face_id)
+            resolved_doc = self.get_reference(actor, fragment["entry_id"], fragment["version"])
+            if value["disclosure"] == "public_normative":
+                policy = self.store.get("knowledge_disclosure", self._key(fragment["entry_id"], fragment["version"]))
+                if not self._valid_public_policy(resolved_doc, resolved_doc["fragments"], policy):
+                    raise DomainError("公开冲突的解决依据须已核准公开", code="forbidden", status_code=403)
+        try:
+            annotate_conflicts([], {"conflicts": [value]})
+        except (ValueError, TypeError, KeyError) as error:
+            raise DomainError("冲突登记格式无效") from error
+        value.update(face_ids=sorted(faces), registered_by=actor.user_id, updated_at=utcstr(self.clock()))
+        with self.store.transaction() as connection:
+            previous = self.store.get("knowledge_conflict", value["conflict_id"], connection)
+            if previous:
+                for face_id in previous["face_ids"]:
+                    actor.require_face(face_id)
+            self.store.put("knowledge_conflict", value["conflict_id"], value, connection)
+        return value
 
     def draft_advice(self, context: ExecutionContext, evidence_bundle: dict, reference_ids: list[str]) -> dict:
         event = evidence_bundle.get("event") or evidence_bundle.get("event_snapshot")
@@ -242,6 +416,9 @@ class KnowledgeService:
         knowledge_as_of = self.clock()
         fragments = [self._approved_fragment(ref, face_id, context.mode == "realtime", knowledge_as_of)
                      for ref in dict.fromkeys(reference_ids)]
+        checked = annotate_conflicts(fragments, self._conflict_metadata(context))
+        if any(row["conflict_status"] in ("open", "possible_conflict", "superseded") for row in checked):
+            raise DomainError("引用条文有未解决分歧或已被替代，请先核对登记的双方原文和签批依据", code="knowledge_conflict_unresolved", status_code=409)
         with self.store.transaction() as connection:
             previous = [entry for entry in self.store.list("advice", connection)
                         if entry["event_id"] == event["event_id"]
@@ -281,8 +458,11 @@ class KnowledgeService:
         if not isinstance(references, list) or not references or any(not isinstance(ref, str) or not ref for ref in references):
             raise DomainError("建议需要非空有效资料引用")
         knowledge_as_of = self.clock()
-        for reference_id in dict.fromkeys(references):
-            self._approved_fragment(reference_id, face_id, context.mode == "realtime", knowledge_as_of)
+        fragments = [self._approved_fragment(reference_id, face_id, context.mode == "realtime", knowledge_as_of)
+                     for reference_id in dict.fromkeys(references)]
+        checked = annotate_conflicts(fragments, self._conflict_metadata(context))
+        if any(row["conflict_status"] in ("open", "possible_conflict", "superseded") for row in checked):
+            raise DomainError("建议引用条文出现未解决分歧或已被替代，请重新核验依据", code="knowledge_conflict_unresolved", status_code=409)
 
     def list_advice(self, actor: Actor, event_id: str) -> list[dict]:
         self.auth.authorize(actor, "read")
@@ -364,11 +544,13 @@ class KnowledgeService:
         entry = self.store.get(kind, self._key(fragment["entry_id"], fragment["version"]))
         if entry is None or entry["state"] != "approved":
             raise DomainError("引用资料尚未批准")
-        if face_id not in fragment["applicability"]["face_ids"]:
+        if face_id not in fragment["applicability"]["face_ids"] or face_id not in entry["applicability"]["face_ids"]:
             raise DomainError("引用资料不适用于当前工作面", code="forbidden", status_code=403)
         if field_record and fragment["operation_context"] == "rehearsal":
             raise DomainError("现场建议不能使用演练经验", code="forbidden", status_code=403)
-        self._require_effective(fragment["applicability"], as_of if as_of is not None else self.clock())
+        current = as_of if as_of is not None else self.clock()
+        self._require_effective(entry["applicability"], current)
+        self._require_effective(fragment["applicability"], current)
         return fragment
 
     @staticmethod

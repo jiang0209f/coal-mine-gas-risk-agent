@@ -79,6 +79,13 @@ def parts():
         "prediction": SimpleNamespace(list_models=lambda context: []),
         "data": SimpleNamespace(list_points=lambda actor,source_id: []),
     }
+    public_rows = {}
+    def public_search(**kwargs):
+        rows = services["knowledge"].search_documents(**kwargs)
+        public_rows.update({row["reference_id"]: deepcopy(row) for row in rows})
+        return rows
+    services["knowledge"].search_public_documents = public_search
+    services["knowledge"].approved_public_fragment = lambda context, reference_id: deepcopy(public_rows[reference_id])
     settings = Settings(_env_file=None,deepseek_api_key="test-only-key",event_brief_allowed_source_ids=["source"])
     services["agent"] = AgentService(store,services,settings,adapter_factory=lambda configuration: adapter)
     briefs = EventBriefsService(store,services,settings)

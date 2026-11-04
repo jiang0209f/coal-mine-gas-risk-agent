@@ -144,6 +144,20 @@ class Search(Payload):
     session_id: str
     query: str
     event_id: str | None = None
+    scope: Literal["local", "public"] = "local"
+
+
+class PublicKnowledgeQuestion(Payload):
+    session_id: str
+    query: str = Field(min_length=1, max_length=20000)
+
+
+class KnowledgeDisclosure(Payload):
+    version: str | int
+    disclosure: Literal["local_only", "public_normative"]
+    official_url: str | None = None
+    category: Literal["law", "regulation", "standard"] | None = None
+    comment: str = Field(min_length=1, max_length=2000)
 
 
 class Advice(Payload):
@@ -512,7 +526,34 @@ def review_reference(entry_id: str, body: Review, a=Depends(actor), s=Depends(se
 def search(body: Search, a=Depends(actor), s=Depends(services)):
     ctx = s["sessions"].get_context(a, body.session_id)
     scope = s["alerts"].get_event_snapshot(ctx, body.event_id) if body.event_id else None
+    if body.scope == "public":
+        return s["knowledge"].search_public_documents(ctx, body.query)
     return s["knowledge"].search_documents(ctx, body.query, scope)
+
+
+@router.post("/references/public-answer")
+def public_knowledge_answer(body: PublicKnowledgeQuestion, a=Depends(actor), s=Depends(services)):
+    context = s["sessions"].get_context(a, body.session_id)
+    return s["public_knowledge"].run(context, body.query, public_query_confirmed=True)
+
+
+@router.post("/references/{entry_id}/disclosure")
+def knowledge_disclosure(entry_id: str, body: KnowledgeDisclosure, a=Depends(actor), s=Depends(services)):
+    return s["knowledge"].set_disclosure(a, entry_id, **body.model_dump())
+
+
+@router.get("/references/fragments/{reference_id}")
+def reference_fragment(reference_id: str, a=Depends(actor), s=Depends(services)):
+    fragment = s["store"].get("reference_fragment", reference_id)
+    if fragment is None:
+        raise DomainError("引用不存在", code="not_found", status_code=404)
+    document = s["knowledge"].get_reference(a, fragment["entry_id"], fragment["version"])
+    return {**fragment, "title": document.get("title"), "state": document["state"]}
+
+
+@router.post("/references/conflicts")
+def register_knowledge_conflict(body: dict = Body(...), a=Depends(actor), s=Depends(services)):
+    return s["knowledge"].set_conflict(a, body)
 
 
 @router.get("/references/{entry_id}")

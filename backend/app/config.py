@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     runtime_dir: Path = PROJECT_ROOT / "local_data"
     database_url: str | None = None
     model_catalog_path: Path | None = None
+    knowledge_embedding_model_dir: Path | None = None
+    knowledge_index_dir: Path | None = None
     ingestion_worker_enabled: bool = True
     realtime_monitor_enabled: bool = True
     realtime_monitor_interval_seconds: float = Field(default=5, gt=0, le=60)

@@ -33,6 +33,7 @@ def build_services(configuration):
     from app.services.evaluation.collector import SessionEvaluationCollector
     from app.services.agent.service import AgentService
     from app.services.agent.briefs import EventBriefsService
+    from app.services.agent.public_knowledge import PublicKnowledgeService
 
     runtime = configuration.runtime_dir.resolve()
     runtime.mkdir(parents=True, exist_ok=True)
@@ -47,7 +48,13 @@ def build_services(configuration):
     s["model_packages"] = ModelPackagesService(store, model_runtime)
     s["alerts"] = AlertsService(store, s["data"])
     s["traceability"] = TraceabilityService(store, s["alerts"], s["data"], s["prediction"], trained_models)
-    s["knowledge"] = KnowledgeService(store, upload_dir=runtime / "knowledge-files")
+    embedding = None
+    if configuration.knowledge_embedding_model_dir is not None:
+        from app.adapters.text_embeddings import LocalTextEmbeddings
+        embedding = LocalTextEmbeddings(configuration.knowledge_embedding_model_dir,
+            configuration.knowledge_index_dir or runtime / "knowledge-index")
+    s["knowledge"] = KnowledgeService(store, upload_dir=runtime / "knowledge-files", embedding=embedding)
+    s["public_knowledge"] = PublicKnowledgeService(s["knowledge"], configuration)
     s["cases"] = CasesService(store, s["alerts"], s["knowledge"])
     s["evaluation"] = EvaluationService(store)
     s["agent"] = AgentService(store, s, configuration)

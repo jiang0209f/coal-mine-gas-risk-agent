@@ -308,7 +308,9 @@ async function api(path, request) {
     actions.push({ ...body, action_id: `qa-action-${actions.length}`, actor_id: 'qa-user', occurred_at: new Date().toISOString(), data_as_of: session.as_of })
     return { case: casePacket().case, case_action: actions.at(-1) }
   }
-  if (path.pathname === '/api/references/search') return [reference]
+  if (path.pathname === '/api/references/search') return [{ ...reference, conflict_status: 'open', conflict_ids: ['qa-conflict'], rerank_reasons: ['同义词匹配：调校'], retrieval_mode: 'hybrid', conflicts: [{ conflict_id: 'qa-conflict', status: 'open', topic: '合成调校周期', reason: '两份合成条文待核', applicability_condition: '同一合成设备', references: [{ reference_id: reference.reference_id, entry_id: reference.entry_id, version: reference.version, locator: reference.locator }] }] }]
+  if (path.pathname === '/api/references/public-answer') return { state: 'completed', method: 'deepseek_public_normative', public_context_only: true, answer: '公开条文解读：调校应记录。[PUB-001]', final_text: '公开条文解读：调校应记录。[PUB-001]', references: [{ reference_id: reference.reference_id, public_reference_id: 'PUB-001', title: '合成公开标准', version: '1', locator: { page: 1 } }], citations: [], tool_steps: [{ name: 'search_public_documents', status: 'success' }] }
+  if (path.pathname === '/api/references/fragments/qa-approved-reference') return { ...reference, title: '合成公开标准' }
   if (path.pathname === '/api/references/qa-document') return { entry_id: 'qa-document', document_id: 'qa-document', version: '1', title: '界面验收规程', state: 'approved', source: reference.source,
     fragments: [{ ...reference, entry_id: 'qa-document', version: '1' }] }
   if (path.pathname === '/api/advice') {
@@ -515,6 +517,38 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
         } finally { await context.close() }
       })
     }
+    await t.test('public explanations and unresolved clause conflicts are visible with source links', async () => {
+      reset('safety_management')
+      const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } })
+      try {
+        const page = await monitoredPage(context); page.setDefaultTimeout(6000)
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user')
+        await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.getByRole('heading', { name: 'TEST-UI 工作面', exact: true }).waitFor()
+        await page.getByRole('button', { name: '创建会话', exact: true }).click()
+        await page.getByRole('button', { name: /资料与依据/ }).click()
+        await page.getByLabel('资料检索关键词', { exact: true }).fill('探头校准')
+        await page.getByRole('button', { name: '检索', exact: true }).click()
+        await page.getByText('条文分歧待核', { exact: true }).first().waitFor()
+        await page.getByText('两份合成条文待核', { exact: true }).waitFor()
+        await page.getByRole('button', { name: '解读公开条文', exact: true }).click()
+        await page.getByRole('region', { name: '公开条文解读', exact: true }).getByText('公开条文解读：调校应记录。[PUB-001]', { exact: true }).waitFor()
+        const request = calls.findLast(item => item.path === '/api/references/public-answer')
+        assert.deepEqual(Object.keys(request.body).sort(), ['query', 'session_id'])
+        assert.equal(request.body.query, '探头校准')
+        assert.equal(calls.filter(item => item.path === '/api/chat').length, 0)
+        await page.getByRole('button', { name: '查看公开引用 PUB-001', exact: true }).click()
+        await page.getByRole('region', { name: '资料原文', exact: true }).getByText(reference.text, { exact: true }).waitFor()
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: 1050 })
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
+          await mkdir(artifactDir, { recursive: true })
+          await page.screenshot({ path: resolve(artifactDir, `knowledge-public-${width}.png`), fullPage: true })
+        }
+      } finally { await context.close() }
+    })
     await t.test('local knowledge upload, review and original fragments stay traceable', async () => {
       reset('safety_management')
       const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } })

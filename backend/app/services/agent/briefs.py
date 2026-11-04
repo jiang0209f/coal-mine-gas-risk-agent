@@ -249,7 +249,9 @@ class EventBriefsService:
         if name == "get_case":
             return self.services["cases"].get_case(context,event_id)
         if name == "search_documents":
-            return self.services["knowledge"].search_documents(context=context,query=arguments["query"],event_scope=task["event_snapshot"])
+            knowledge = self.services["knowledge"]
+            rows = knowledge.search_public_documents(context=context,query=arguments["query"],event_scope=task["event_snapshot"])
+            return [knowledge.approved_public_fragment(context, row["reference_id"]) for row in rows]
         run=self.services["prediction"].get_forecast(context,arguments["run_id"])
         if run.get("point_id") != task["event_snapshot"]["point_id"]:
             raise DomainError("预测不属于当前事件测点", "forbidden", 403)
