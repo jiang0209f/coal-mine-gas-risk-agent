@@ -34,7 +34,7 @@
 | knowledge | 原件、资料元数据、正文片段、审核结论、检索词、事件及引用编号 | 当前有效引用、建议版本、审核经验 | `POST /references/files`、`GET /references/files/{file_id}`、`GET /references/files/{file_id}/content`、`GET /references`、`POST /references/imports`、`GET /references/{entry_id}`、`POST /references/{entry_id}/review`、`POST /references/search`、`POST /advice`、`POST /experiences`、`POST /experiences/{experience_id}/review` | 本地上传与原文定位、审核及版本替代；读取事件依据及已复核处置快照 |
 | cases | 事件、人工动作、建议编号与版本、执行及反馈内容 | 处置阶段、动作历史、建议审核状态、待办、复核快照 | `GET /cases/{event_id}`、`POST /cases/{event_id}/actions` | 调用 alerts、knowledge、auth；供前端操作和 agent 查询 |
 | agent | 用户问题或事件简报任务；服务端注入身份、来源和时钟 | 回答、工具步骤、结果卡、引用、任务状态及审计 | `POST /chat`、`GET /tasks/{task_id}`、`POST /tasks/{task_id}/cancel`、`GET/POST /events/{event_id}/brief`、`POST /events/{event_id}/brief/cancel` | 对话编排八工具；主动简报限定四个只读工具并展示引用 |
-| evaluation | 冻结数据清单、事件、样本、任务和有效监测时长 | 清单哈希、匹配明细、指标分子分母和报告 | `GET/POST /evaluations`、`GET /evaluations/{evaluation_id}` | 读取冻结记录；后续在本服务内增加会话记录采集器 |
+| evaluation | 只读采集会话、事件、成熟预测样本、任务、建议、人工动作和有效测点支持时长；冻结记录与报告 | 三类冻结摘要、匹配明细、指标分子分母、缺项及导出投影摘要 | `GET/POST /evaluations`、`POST /evaluations/from-session`、`GET /evaluations/{evaluation_id}`、`GET /evaluations/{evaluation_id}/manifest`、`GET /evaluations/{evaluation_id}/metrics/{metric}`、`GET /evaluations/{evaluation_id}/records/observations/{observation_id}`、`GET /evaluations/{evaluation_id}/export` | 已接通会话采集、冻结事实回查及本地JSON导出；原手工冻结入口保留 |
 | frontend | 登录态、当前会话、选中测点/事件、各模块返回值 | 综合态势、事件研判、处置、资料、评估页面 | 调用上述 HTTP 接口 | 统一联动状态、时间和版本；迁移深蓝设计并接真实数据 |
 
 接口以运行服务的 `/openapi.json` 为准。现有兼容别名继续保留，页面优先使用表内主路径；请求与响应沿用实际接口合同。
@@ -77,7 +77,8 @@ flowchart TD
   K --> C[cases 人工审核与处置]
   C --> X[已复核快照与待审核经验]
   X --> K
-  S -. 阶段四拟实现记录采集 .-> E[evaluation 冻结报告]
+  S --> EC[evaluation 只读采集会话记录]
+  EC --> E[evaluation 冻结报告与明细回查]
   C --> E
 ```
 
@@ -145,13 +146,13 @@ flowchart TD
 | 人工处置 | 使用同一事件和已审核作业规程完成演练 | 建议版本审核、执行、反馈、复核记录完整 |
 | 回放与报告 | 暂停、继续、变速，按固定清单重新回放 | 事件与证据可复现，报告可回查匹配明细 |
 
-回放入口使用现有 sessions 能力；向过去重新回放时按现有会话规则创建新会话并保留关联。场景清单保存来源、时间区间、测点、模型和规则版本，区分真实历史与合成演练。
+回放入口已接通暂停、继续、倍速和关联重放；向过去重新回放时创建带`parent_session_id`的新会话。创建、暂停、继续、变速、推进和停止均保存顺序动作审计及前后时钟状态，原会话和冻结报告继续保留。场景范围保存来源、时间区间、测点、模型、阶段及规则版本，区分真实历史与合成演练。
 
 当前六通道数据 T0 最高值为 0.75，缺少 ≥0.8 的真实正例。模型目标阈值 0.65、各级业务规则及其适用事件分别说明；无正例口径显示样本数量和不可计算项。界面采用实际事件等级，合成高值演练使用独立来源。
 
-评估服务已有冻结和报告能力；后续增加内部会话记录采集器，将实际运行转换为 actual_events、alert_events、samples、tasks 和 valid_monitoring_hours。**拟新增接口**：`POST /api/evaluations/from-session`，输入 session_id、时间范围、测点及模型选择，返回冻结评估编号。
+评估服务已增加内部会话记录采集器，通过`POST /api/evaluations/from-session`只读采集已保存记录，不推进会话或重新运行模型。实际运行转换为`actual_events/alert_events/samples/tasks`及独立建议、人工动作、会话审计和原始观测。预测通知映射到成熟目标窗口再与实测阈值事件匹配，目标窗口采用`[start_at,end_at)`；通知时间、目标时间及操作时间分别保留。
 
-报告展示数据范围、训练/测试分区、模型/规则版本、有效时长、事件匹配、指标分子分母、缺失项与清单哈希。预测误差、事件检出与聚类标签一致率分别报告；真实成因效果待具备对应标注后计算。
+报告展示数据范围、用户声明的分区、模型/规则版本、目标统计量、有效测点支持时长、事件匹配、指标分子分母、缺失项和记录/清单/报告摘要。多测点时长采用`sensor-hours`，疑似标校剔除视图同步重算分母。样本、任务、建议和冻结观测可分页回查；本地JSON导出另带实际投影摘要。阈值事件与事故、成因标签分别记录，未评估、无成熟样本和零分母按具体缺项展示。使用与验收见[回放与冻结评估说明](replay-evaluation.md)。
 
 ## 9. 实现顺序与完成标准
 
@@ -162,7 +163,7 @@ flowchart TD
 | 一：正式前端联动 | 深蓝设计迁移；会话、测点、曲线、事件、候选溯源、依据及任务卡 | 主要页面真实 API 联动；切换来源/事件不残留旧结果；常用窗口与窄屏下内容可读、操作可达 |
 | 二：智能体主动简报 | 四类业务交互、事件版本简报、步骤/引用、失败重试和取消 | 同一事件版本结果复用；引用可打开；失败保留已完成卡片；取消阻止后续工具调用 |
 | 三：知识与人工闭环 | 作业规程入库审核、建议版本、五类人工动作、经验审核 | 全链可操作；被拒绝建议无法登记执行；复核记录冻结；权限和来源性质验证通过 |
-| 四：回放与评估 | 固定场景、会话采集、冻结报告及明细联查 | 重复回放遵守时钟；无未来数据；报告与冻结记录一致；无正例和缺失项按实际口径展示 |
+| 四：回放与评估（已实现） | 会话动作审计、关联重放、会话采集、冻结报告、指标与原始观测明细、本地导出 | 重复回放遵守时钟；按冻结目标区间和观测支持计算；三类摘要及导出投影可核对；缺项和零分母明确展示 |
 | 五：现场接口 | 现场协议转换、来源/测点绑定、重试去重和运行状态 | 实际接口样本入库并查询成功；断线补传和重复发送验证通过；现场会话受服务器时钟约束 |
 
 现场阶段需要提供：接口协议与认证方式、访问网络、点位编号和单位、采样/上传周期。正式规则与建议发布还需核对矿井有效规则、作业规程版本和审核权限；现有作业规程先进入资料审核流程。

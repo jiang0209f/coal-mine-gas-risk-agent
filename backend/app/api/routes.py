@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import shutil
 from tempfile import NamedTemporaryFile
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, Form, Header, Query, Request, UploadFile
@@ -81,6 +81,18 @@ class EventBrief(Payload):
 class EventBriefCancel(Payload):
     session_id: str = Field(min_length=1)
     event_revision: int | None = Field(default=None, ge=1)
+
+
+class SessionEvaluation(Payload):
+    session_id: str = Field(min_length=1)
+    start_at: AwareDatetime
+    end_at: AwareDatetime
+    point_ids: list[str] | None = Field(default=None, min_length=1)
+    model_id: str | None = None
+    model_version: str | None = None
+    prediction_stage: str | None = None
+    dataset_split: Literal["unclassified", "train", "validation", "test"] = "unclassified"
+    tolerance_seconds: float = Field(default=0, ge=0, allow_inf_nan=False)
 
 
 class Forecast(Payload):
@@ -461,12 +473,48 @@ def cancel(task_id: str, a=Depends(actor), s=Depends(services)):
 @router.get("/evaluations")
 def evaluations(a=Depends(actor), s=Depends(services)):
     s["auth"].authorize(a, "evaluate")
-    return [r for r in s["store"].list("evaluation_report") if r["face_id"] in a.face_ids]
+    return [s["evaluation"].get_report(a, r["evaluation_id"])
+            for r in s["store"].list("evaluation_report") if r["face_id"] in a.face_ids]
 
 
 @router.post("/evaluations")
 def evaluate(body: dict = Body(), a=Depends(actor), s=Depends(services)):
     return s["evaluation"].run(a, _object(body.get("spec", {}), "评估清单"), _object(body.get("records", {}), "冻结记录"))
+
+
+@router.post("/evaluations/from-session")
+def evaluate_session(body: SessionEvaluation, a=Depends(actor), s=Depends(services)):
+    s["auth"].authorize(a, "evaluate")
+    context = s["sessions"].get_context(a, body.session_id)
+    collected = s["evaluation_collector"].collect(context, **body.model_dump(exclude={"session_id"}))
+    manifest = s["evaluation"].freeze_manifest(a, collected["spec"],
+        {**collected.get("artifact_refs", {}), "frozen_records": collected["records"]})
+    return s["evaluation"].build_report(manifest["manifest_id"])
+
+
+@router.get("/evaluations/{evaluation_id}/manifest")
+def evaluation_manifest(evaluation_id: str, a=Depends(actor), s=Depends(services)):
+    return s["evaluation"].get_manifest(a, evaluation_id)
+
+
+@router.get("/evaluations/{evaluation_id}/metrics/{metric}")
+def evaluation_metric(evaluation_id: str, metric: str, variant: str = "primary",
+                      offset: int = Query(default=0, ge=0), limit: int = Query(default=50, ge=1, le=200),
+                      a=Depends(actor), s=Depends(services)):
+    return s["evaluation"].get_metric_details(a, evaluation_id, metric, variant, offset, limit)
+
+
+@router.get("/evaluations/{evaluation_id}/export")
+def export_evaluation(evaluation_id: str, a=Depends(actor), s=Depends(services)):
+    exported = s["evaluation"].export_report(a, evaluation_id)
+    return Response(json.dumps(exported, ensure_ascii=False, allow_nan=False), media_type="application/json", headers={
+        "Content-Disposition": f'attachment; filename="evaluation-{evaluation_id}.json"', "Cache-Control": "no-store",
+    })
+
+
+@router.get("/evaluations/{evaluation_id}/records/observations/{observation_id}")
+def evaluation_observation(evaluation_id: str, observation_id: str, a=Depends(actor), s=Depends(services)):
+    return s["evaluation"].get_frozen_observation(a, evaluation_id, observation_id)
 
 
 @router.get("/events/{event_id}/evidence", include_in_schema=False)

@@ -6,6 +6,48 @@ import { adviceIsStale, canCaseAction, referenceLocation, referenceValidity } fr
 import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, seriesToPoints } from '../src/utils.mjs'
 import { chooseModelKey, contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, latestVisibleReading, modelKey, replayStart } from '../src/workspace.mjs'
 
+test('replay creates a linked new session without changing the previous clock', async () => {
+  const { replaySessionSpec } = await import('../src/evaluation.mjs')
+  const session = { session_id: 'old-session', source_id: 'source', mode: 'historical_replay',
+    start_as_of: '2022-02-05T12:00:00Z', as_of: '2022-02-05T13:00:00Z', config_version: 'rules-v1', speed: 2 }
+  const previous = structuredClone(session)
+  assert.deepEqual(replaySessionSpec(session, '2022-02-05T12:20:00Z'), {
+    source_id: 'source', mode: 'historical_replay', start_as_of: '2022-02-05T12:20:00.000Z',
+    config_version: 'rules-v1', speed: 2, parent_session_id: 'old-session' })
+  assert.deepEqual(session, previous)
+  assert.throws(() => replaySessionSpec(session, '2022-02-05T13:01:00Z'), /当前数据时间/)
+  assert.throws(() => replaySessionSpec({ ...session, mode: 'realtime' }, session.start_as_of), /历史/)
+})
+
+test('evaluation values preserve zero and explain unavailable metrics precisely', async () => {
+  const { metricDisplay, evaluationReason } = await import('../src/evaluation.mjs')
+  assert.equal(metricDisplay(0), '0')
+  assert.equal(metricDisplay(null), '未计算')
+  assert.equal(evaluationReason({ status: 'not_computable', reason: 'no_positive_events' }), '没有实测阈值事件')
+  assert.equal(evaluationReason({ status: 'not_computable', reason: 'no_mature_forecasts' }), '没有已成熟的预测区间')
+  assert.equal(evaluationReason({ reason: 'zero_denominator' }), '分母为零')
+  assert.equal(evaluationReason({ reason: 'no_observed_assessments' }), '未保存会话实测阈值事件评估记录')
+})
+
+test('frozen report rows retain their record type and classification', async () => {
+  const { detailRowLabel } = await import('../src/evaluation.mjs')
+  assert.equal(detailRowLabel({ classification: 'FP', sample_id: 'sample-2' }), '误报样本 · sample-2')
+  assert.equal(detailRowLabel({ kind: 'unmatched_actual', event_id: 'observed-1' }), '未匹配实测事件 · observed-1')
+  assert.equal(detailRowLabel({ kind: 'task', task_id: 'task-1' }), '工具任务 · task-1')
+})
+
+test('session evaluation request pins model range timezone and declared data split', async () => {
+  const { evaluationRequest } = await import('../src/evaluation.mjs')
+  const session = { session_id: 'session-1', as_of: '2022-02-05T13:00:00Z' }
+  const input = { session, startTime: '2022-02-05T20:00:00', endTime: '2022-02-05T21:00:00',
+    pointIds: ['p1'], model: { model_id: 'model-1', version: 'v2' }, predictionStage: 'residual_corrected', datasetSplit: 'unclassified', toleranceSeconds: 0 }
+  assert.deepEqual(evaluationRequest(input), { session_id: 'session-1', start_at: '2022-02-05T12:00:00.000Z',
+    end_at: '2022-02-05T13:00:00.000Z', point_ids: ['p1'], model_id: 'model-1', model_version: 'v2',
+    prediction_stage: 'residual_corrected', dataset_split: 'unclassified', tolerance_seconds: 0 })
+  assert.throws(() => evaluationRequest({ ...input, endTime: '2022-02-05T21:01:00' }), /当前数据时间/)
+  assert.throws(() => evaluationRequest({ ...input, endTime: input.startTime }), /结束时间/)
+})
+
 test('reference locations preserve page paragraph and line anchors', () => {
   assert.equal(referenceLocation({ page: 3, paragraph: 2 }), '第3页 · 第2段')
   assert.equal(referenceLocation({ paragraph: 7, line: 12 }), '第7段 · 第12行')

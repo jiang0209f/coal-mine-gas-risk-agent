@@ -20,6 +20,19 @@ class SessionsService:
     def __init__(self, store: Store) -> None:
         self.store = store
 
+    def _record_action(self, actor, session, action, before, connection):
+        session["action_sequence"] = session.get("action_sequence", 0) + 1
+        fields = ("as_of", "state", "speed")
+        record = {
+            "action_id": str(uuid4()), "session_id": session["session_id"],
+            "source_id": session["source_id"], "face_id": session["face_id"],
+            "action_type": action, "sequence": session["action_sequence"],
+            "actor_id": actor.user_id, "occurred_at": session["updated_at"],
+            "data_as_of": session["as_of"], "before": before,
+            "after": {key: session[key] for key in fields},
+        }
+        self.store.put("session_action", record["action_id"], record, connection)
+
     def _source(self, actor: Actor, source_id: str, connection: Connection) -> dict:
         source = self.store.get("source", source_id, connection=connection)
         if source is None:
@@ -63,7 +76,9 @@ class SessionsService:
         with self.store.transaction() as connection:
             source = self._source(actor, source_id, connection)
             if parent_session_id is not None:
-                self._session(actor, parent_session_id, connection)
+                parent = self._session(actor, parent_session_id, connection)
+                if parent["source_id"] != source_id:
+                    raise DomainError("关联回放必须使用同一数据源", code="forbidden", status_code=403)
             created_at = utcstr(now_utc())
             session = {
                 "session_id": str(uuid4()),
@@ -79,6 +94,7 @@ class SessionsService:
                 "created_at": created_at,
                 "updated_at": created_at,
             }
+            self._record_action(actor, session, "create", None, connection)
             return self.store.put("session", session["session_id"], session, connection=connection)
 
     def get_session(self, actor: Actor, id: str) -> dict:
@@ -108,6 +124,7 @@ class SessionsService:
         actor.require_role(*_ROLES)
         with self.store.transaction() as connection:
             session = self._session(actor, id, connection)
+            before = {key: session[key] for key in ("as_of", "state", "speed")}
             if session["state"] == "ended":
                 raise DomainError("会话已结束", code="conflict", status_code=409)
             if action not in _ACTIONS:
@@ -126,6 +143,7 @@ class SessionsService:
             else:
                 session["state"] = {"pause": "paused", "resume": "running", "stop": "ended"}[action]
             session["updated_at"] = utcstr(now_utc())
+            self._record_action(actor, session, action, before, connection)
             return self.store.put("session", id, session, connection=connection)
 
     def list_sessions(self, actor: Actor) -> list[dict]:

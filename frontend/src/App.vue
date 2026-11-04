@@ -6,12 +6,15 @@ import { chooseModelKey, contextKey, createRequestGuard, displayWindow, forecast
 import { briefCitations, briefMatches, briefScopeKey, localCitationDetail, shouldPollBrief } from './briefs.mjs'
 import MonitorWorkspace from './components/MonitorWorkspace.vue'
 import KnowledgeWorkspace from './components/KnowledgeWorkspace.vue'
+import EvaluationWorkspace from './components/EvaluationWorkspace.vue'
 import { adviceIsStale, canCaseAction, referenceLocation } from './knowledge.mjs'
+import { replaySessionSpec } from './evaluation.mjs'
 
 const token = ref(''), user = ref(null), username = ref(''), password = ref('')
 const busy = ref(''), error = ref(''), notice = ref(''), tab = ref('monitor')
 const sources = ref([]), points = ref([]), sessions = ref([]), sourceId = ref(''), pointId = ref('')
 const active = ref(null), mode = ref('historical_replay'), startTime = ref(''), coverage = ref(null)
+const replayTime = ref(''), evaluationListRequests = createRequestGuard()
 const series = ref({ rows: [] }), events = ref([]), rules = ref(null), models = ref([]), reports = ref([])
 const selectedModel = ref(''), forecast = ref(null), pointReadings = ref({}), forecastLoading = ref(false), forecastError = ref(''), eventLoading = ref(false)
 const selectedEvent = ref(null), evidence = ref(null), caseResult = ref(null), selectedAdvice = ref('')
@@ -42,7 +45,6 @@ const attributionNeeds = {
   classifier: '补齐模型文件', training_metadata: '补齐模型登记信息', model_python: '配置溯源模型运行环境',
 }
 const qualityNames = { invalid: '无效值', missing: '缺测', unit_inferred: '单位推定', delayed: '延迟', suspected_calibration: '疑似标校', planned_calibration: '计划标校', confirmed_calibration: '已确认标校', duplicate_timestamp: '重复时间', timezone_inferred: '时区按配置', forward_filled: '过去值填补' }
-const metricNames = { precision: '逐事件查准率', recall: '逐事件召回率', missed_events: '漏报事件数', false_alerts_per_valid_monitoring_hour: '每有效监测小时误报数', sample_precision: '逐样本查准率', sample_recall: '逐样本召回率', sample_fpr: '逐样本误报率', mae: '平均绝对误差', mape_with_zero_policy: '非零样本平均百分比误差', tool_task_completion_rate: '工具任务完成率', evidence_completeness: '依据完整率', advice_reference_coverage: '建议出处覆盖率' }
 const safety = computed(() => user.value?.roles?.includes('safety_management'))
 const source = computed(() => sources.value.find(item => item.source_id === sourceId.value))
 const point = computed(() => points.value.find(item => item.point_id === pointId.value))
@@ -65,7 +67,7 @@ function clearLogin() {
   sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate()
   pollVersion++
   token.value = ''; user.value = null; active.value = null; chatBusy.value = false
-  sources.value = []; sessions.value = []; points.value = []; messages.value = []; refs.value = []; referenceListRequests.invalidate(); clearMonitor()
+  sources.value = []; sessions.value = []; points.value = []; messages.value = []; refs.value = []; reports.value = []; evaluationListRequests.invalidate(); referenceListRequests.invalidate(); clearMonitor()
 }
 async function run(label, callback) {
   const sequence = ++busySequence
@@ -101,7 +103,17 @@ async function loadBase() {
   sourceId.value = sources.value[0]?.source_id || ''
   await changeSource()
   await loadReferences()
-  if (safety.value) reports.value = list(await api('/evaluations'))
+  if (safety.value) await loadReports()
+}
+async function loadReports() {
+  if (!safety.value) return
+  const request = evaluationListRequests.begin(), actor = user.value?.user_id
+  const result = await api('/evaluations')
+  if (evaluationListRequests.isCurrent(request) && actor === user.value?.user_id && safety.value) reports.value = list(result)
+}
+function acceptReport(report) {
+  evaluationListRequests.invalidate()
+  reports.value = [report, ...reports.value.filter(item => item.evaluation_id !== report.evaluation_id)]
 }
 async function changeSource() {
   const requestedSource = sourceId.value, request = sourceRequests.begin()
@@ -235,14 +247,28 @@ async function refreshObservedSeries(session, selectedPoint, scope) {
   const result = await api(`/observations?${queryString({ session_id: session.session_id, point_id: selectedPoint, ...displayWindow(session.as_of), aggregation_seconds: 60, limit: 1000 })}`)
   if (contextKey(active.value, pointId.value) === scope && !selectedEvent.value) series.value = result
 }
-async function sessionAction(action) {
+async function sessionAction(action, fields = {}) {
   await run('更新会话', async () => {
     const sessionId = active.value.session_id
-    await post(`/sessions/${sessionId}/actions`, { action })
+    await post(`/sessions/${sessionId}/actions`, { action, ...fields })
     const result = await api(`/sessions/${sessionId}`)
     if (active.value?.session_id !== sessionId) return
     active.value = result
     await refreshWorkspace()
+  })
+}
+async function restartReplay() {
+  if (!active.value || active.value.mode === 'realtime') return
+  await run('创建关联回放', async () => {
+    const requestedSource = sourceId.value, request = sourceRequests.begin()
+    const spec = replaySessionSpec(active.value, chinaInputToIso(replayTime.value))
+    clearMonitor(); pollVersion++; chatBusy.value = false; messages.value = []
+    const result = await post('/sessions', spec)
+    if (!sourceRequests.isCurrent(request) || sourceId.value !== requestedSource) return
+    active.value = result
+    sessions.value = list(await api('/sessions'))
+    await refreshWorkspace()
+    notice.value = '已新建关联回放，原会话记录保留。'
   })
 }
 async function tick(seconds = null) {
@@ -491,6 +517,7 @@ watch(active, () => {
   clearInterval(playbackTimer)
   if (active.value?.state === 'running') playbackTimer = setInterval(() => tick(), 5000)
 })
+watch(() => active.value?.session_id, () => { replayTime.value = active.value ? mineTime(active.value.start_as_of).replace(' ', 'T') : '' })
 onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate(); caseReferenceRequests.invalidate(); referenceSearchRequests.invalidate(); referenceListRequests.invalidate(); clearInterval(playbackTimer); clearBrief() })
 </script>
 
@@ -509,6 +536,7 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
         <div v-if="active" class="session-strip"><span class="tag teal">{{ { historical_replay: '历史回放', simulated_stream: '模拟数据流', realtime: '现场接入' }[active.mode] }}</span><span class="session-clock">{{ mineTime(active.as_of) }}</span><span class="muted">{{ states[active.state] || active.state }}</span><div class="session-buttons"><button class="secondary small" :disabled="!!busy || active.state === 'ended'" @click="sessionAction(active.state === 'running' ? 'pause' : 'resume')">{{ active.state === 'running' ? 'Ⅱ 暂停' : '▷ 继续' }}</button><button class="primary small" :disabled="!!busy || active.state === 'ended'" @click="tick(60)">{{ active.mode === 'realtime' ? '刷新现场时间' : '前进 60 秒 →' }}</button></div></div>
         <details class="create-session" :open="!active"><summary>创建新会话</summary><div class="form-row"><label>运行方式<select v-model="mode"><option value="historical_replay">历史回放</option><option value="simulated_stream">模拟数据流</option><option value="realtime">现场接入</option></select></label><label>起始时间（UTC+8）<input v-model="startTime" type="datetime-local" step="1"></label><button class="primary" :disabled="!sourceId || !!busy || (mode !== 'realtime' && !startTime)" @click="createSession">创建会话</button></div></details>
       </section>
+      <div class="replay-toolbar" v-if="active && active.mode !== 'realtime'"><label class="replay-speed">回放倍速<select :value="active.speed || 1" :disabled="!!busy || active.state === 'ended'" @change="sessionAction('set_speed', { speed: Number($event.target.value) })"><option v-for="speed in [0.5,1,2,5,10]" :key="speed" :value="speed">{{ speed }}倍</option></select></label><details><summary>重新回放</summary><div class="replay-controls"><label>回放起点（UTC+8）<input v-model="replayTime" type="datetime-local" step="1"></label><button class="secondary small" :disabled="!!busy || !replayTime" @click="restartReplay">从此处新建回放</button></div></details></div>
       <div class="content-grid" :class="{ 'monitor-layout': tab === 'monitor' }"><main class="main-column">
       <template v-if="tab === 'monitor'">
         <MonitorWorkspace :session="active" :source="source" :points="points" :point-id="pointId" :series="series" :point-readings="pointReadings" :events="events" :rules="rules" :models="models" :selected-model="selectedModel" :forecast="forecast" :selected-event="selectedEvent" :evidence="evidence" :case-result="caseResult" :busy="busy" :event-loading="eventLoading" :forecast-loading="forecastLoading" :forecast-error="forecastError" :window="chartWindow"
@@ -553,7 +581,7 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
       </template>
       <template v-if="tab === 'evaluation'">
         <section class="panel"><div class="section-heading"><div><h2>已登记模型</h2><p>按当前会话数据源与监测点显示。</p></div></div><div v-if="!models.length" class="empty-state"><span>◈</span><p>{{ active ? '当前点位暂无已登记模型' : '选择会话后查看模型状态' }}</p></div><article v-for="model in models" :key="`${model.model_id}:${model.version}`" class="model-card"><div><strong>{{ model.name || model.model_id }}</strong><span class="tag" :class="model.model_type === 'baseline' ? 'amber' : 'teal'">{{ model.model_type === 'baseline' ? '离线基线' : '已登记专业模型' }}</span></div><p>{{ model.model_type === 'baseline' ? '用于离线流程验证。' : '是否可运行由输入完整性与适配器状态决定。' }}</p><small>版本 {{ model.version }} · 输入 {{ model.input_window }} 个时间桶 · 预测时长 {{ model.horizon_seconds }} 秒</small></article></section>
-        <section class="panel"><div class="section-heading"><div><h2>冻结评估报告</h2><p>按实际报告展示指标、分子与分母。</p></div></div><div v-if="!safety" class="empty-state"><p>评估报告由安全管理人员查看。</p></div><div v-else-if="!reports.length" class="empty-state"><span>▥</span><p>暂无冻结评估报告</p><small>完成评估后显示实际结果。</small></div><article v-for="report in reports" :key="report.evaluation_id" class="report-card"><h3>{{ report.face_id }} 工作面 · {{ mineTime(report.generated_at, false) }}</h3><div class="table-scroll"><table><thead><tr><th>指标</th><th>结果</th><th>分子 / 分母</th></tr></thead><tbody><tr v-for="(value,key) in report.metric_values" :key="key"><td>{{ metricNames[key] || key }}</td><td>{{ value === null ? '分母为零，未计算' : typeof value === 'number' ? Number(value.toFixed(4)) : value }}</td><td>{{ report.numerators?.[key] ?? '—' }} / {{ report.denominators?.[key] ?? '—' }}</td></tr></tbody></table></div><details><summary>冻结清单与样本引用</summary><pre class="result-json">{{ pretty({ manifest_id: report.manifest_id, sample_refs: report.sample_refs }) }}</pre></details></article></section>
+        <EvaluationWorkspace :api="api" :safety="safety" :session="active" :source-id="sourceId" :points="points" :point-id="pointId" :models="models" :selected-model="selectedModel" :reports="reports" @created="acceptReport" @refresh="run('读取评估报告', loadReports)" @error="message => error = message" @notice="message => notice = message" />
       </template>
       </main><aside class="assistant-panel panel"><div class="assistant-heading"><span class="assistant-symbol">✦</span><div><h2>风险管控助手</h2><small>调用实际工具 · 引用可查依据</small></div><span class="tag teal">DeepSeek</span></div><div class="assistant-context"><span class="dot"></span>{{ active ? `已绑定 ${source?.face_id || ''} 工作面会话` : '等待选择会话' }}</div><div class="chat-messages" aria-live="polite"><div v-if="!messages.length" class="assistant-welcome"><span>✦</span><h3>围绕当前数据时点提问</h3><p>可查询监测片段、预警事件、资料条文和处置进度。</p><button v-for="question in ['当前有哪些预警事件？','查看当前点位最近一小时的监测数据','这次事件有哪些可回查依据？']" :key="question" :disabled="!active" @click="chatInput = question">{{ question }} ↗</button></div><article v-for="(message,index) in messages" :key="index" class="chat-message" :class="message.role"><span class="message-label">{{ message.role === 'user' ? '我' : '风险管控助手' }}</span><p>{{ message.text }}</p><small v-if="message.state">{{ states[message.state] || message.state }}{{ message.method === 'structured_template' ? ' · 结构化模板' : '' }}</small><details v-if="message.steps?.length"><summary>工具调用记录</summary><pre>{{ pretty(message.steps) }}</pre></details></article><div v-if="chatBusy" class="chat-thinking"><span>{{ chatTask?.state ? (states[chatTask.state] || chatTask.state) : '正在提交任务' }}…</span><button v-if="chatTask?.task_id" class="ghost small" :disabled="!!busy || !['running','queued'].includes(chatTask.state)" @click="cancelChat">取消任务</button></div></div><form class="chat-form" @submit.prevent="sendChat"><textarea v-model="chatInput" rows="3" :disabled="!active" placeholder="向助手提问…" aria-label="向风险管控助手提问" @keydown.ctrl.enter.prevent="sendChat"></textarea><div><small>{{ active ? '围绕当前会话回答' : '请先创建会话' }}</small><button class="primary small" :disabled="!active || !chatInput.trim() || chatBusy">{{ chatBusy ? '处理中' : '发送 ↑' }}</button></div></form></aside></div>
       </div><footer class="page-footer">采煤工作面瓦斯超限预测及溯源管控智能体 <span>{{ active ? `${active.mode === 'realtime' ? '现场接入' : '演练回放'} · 数据时间 ${mineTime(active.as_of)}` : '尚未选择会话' }}</span></footer>
@@ -562,6 +590,7 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
 </template>
 
 <style scoped>
+.replay-toolbar{display:flex;align-items:flex-start;flex-wrap:wrap;gap:14px;margin:0 0 16px;padding:11px 15px;background:#0e263b;border:1px solid #25445a;border-radius:5px;font-size:12px}.replay-speed{display:flex;align-items:center;gap:10px;margin:0;white-space:nowrap}.replay-speed select{margin:0;width:85px;padding:5px 8px}.replay-toolbar>details{flex:1;min-width:220px;max-width:100%;padding-top:5px}.replay-toolbar summary{cursor:pointer;color:#8ecbdb}.replay-controls{display:flex;gap:10px;align-items:flex-end;margin-top:12px;flex-wrap:wrap}.replay-controls>label{margin:0;flex:1;min-width:190px}.replay-controls input{min-width:0;max-width:100%}.replay-controls button{margin-bottom:1px}@media(max-width:760px){.replay-toolbar{gap:9px}.replay-toolbar>details{flex-basis:100%;min-width:0}.replay-controls>label{min-width:0;flex-basis:100%}}
 .case-reference-option{border-bottom:1px solid #29465b;padding-bottom:12px;margin-bottom:12px}.case-reference-option .reference-select{margin-bottom:4px}.case-original article{margin-top:12px;padding:12px;background:#102b40;border:1px solid #294a62;border-radius:4px}.case-original article strong{font-size:12px;color:#8acddc}.case-original article p{white-space:pre-wrap;line-height:1.9;margin:7px 0 0;overflow-wrap:anywhere}.advice-items button{display:block;margin-top:5px}.case-archive dl{display:grid;gap:8px;margin:16px 0;font-size:13px}.case-archive dl>div{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px}.case-archive dt{color:#90adc4}.case-archive dd{margin:0;overflow-wrap:anywhere}
 @media(max-width:760px){.case-archive dl>div{grid-template-columns:82px minmax(0,1fr)}}
 </style>

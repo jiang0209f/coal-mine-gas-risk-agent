@@ -28,9 +28,20 @@ const modelCatalog = [
 const reference = { reference_id: 'qa-approved-reference', entry_id: 'qa-document', version: '1', kind: 'document', source: 'UI验收资料', locator: { page: 1 }, text: '测试条文：核对监测记录。', operation_context: 'field_record', knowledge_as_of: '2026-11-04T12:00:00Z' }
 let role, session, actions, advice, calls, pendingChat, taskState, attributionState, forecastRuns, savedSessions, nextEvidenceGate, documents, nextDocumentGate
 let briefStatus, briefAttempt, briefAsOf, briefRevision, selectedEventRevision, generateOnTick, eventPresent, nextBriefGate
+let evaluationReports, nextMetricGate
 function reset(value) {
   role = value; session = null; actions = []; advice = []; calls = []; documents = []; nextDocumentGate = null; pendingChat = false; taskState = 'running'; attributionState = 'completed'; forecastRuns = []; savedSessions = new Map(); nextEvidenceGate = null
   briefStatus = 'not_started'; briefAttempt = 0; briefAsOf = null; briefRevision = 1; selectedEventRevision = 1; generateOnTick = false; eventPresent = true; nextBriefGate = null
+  evaluationReports = []; nextMetricGate = null
+}
+function evaluationReport() {
+  return { evaluation_id: 'qa-evaluation', manifest_id: 'qa-manifest', face_id: source.face_id, generated_at: '2026-11-04T12:00:00Z',
+    records_sha256: 'b'.repeat(64), manifest_sha256: 'c'.repeat(64), report_sha256: 'd'.repeat(64),
+    metric_values: { precision: 0, recall: null, mae: 0.1 }, numerators: { precision: 0, recall: 0, mae: 5.1 }, denominators: { precision: 2, recall: 0, mae: 51 },
+    metric_statuses: { precision: { status: 'calculated', reason: null }, recall: { status: 'unavailable', reason: 'no_actual_events' }, mae: { status: 'calculated', reason: null } },
+    scope_metadata: { source_id: source.source_id, session_id: session.session_id, point_ids: [point.point_id], start_at: session.start_as_of, end_at: session.as_of, as_of: session.as_of },
+    collection_summary: { actual_events: 0, alert_events: 2, samples: 51, tasks: 1, valid_monitoring_hours: 1 },
+    sample_refs: { actual_events: [], alert_events: ['qa-predicted-event'], samples: ['qa-frozen-sample'], tasks: ['qa-tool-task'] }, calibration_views: {}, missing_fields: [] }
 }
 function forecast(modelId = modelCatalog[0].model_id, version = modelCatalog[0].version) {
   const cutoff = Math.floor(Date.parse(session.as_of) / 300000) * 300000
@@ -111,7 +122,7 @@ async function api(path, request) {
   for await (const chunk of request) chunks.push(chunk)
   const text = Buffer.concat(chunks).toString()
   const body = request.headers['content-type']?.startsWith('multipart/form-data') ? { multipart: text } : text ? JSON.parse(text) : null
-  calls.push({ path: path.pathname, query: Object.fromEntries(path.searchParams), method: request.method, body })
+  calls.push({ path: path.pathname, query: Object.fromEntries(path.searchParams), method: request.method, body, authenticated: request.headers.authorization === 'Bearer qa-isolated-token' })
   if (path.pathname === '/api/auth/login') return { access_token: 'qa-isolated-token', token_type: 'bearer', user: { user_id: 'qa-user', username: '界面验收账户', roles: [role], face_ids: [source.face_id] } }
   if (path.pathname === '/api/auth/logout') return {}
   if (path.pathname === '/api/sources') return [source, otherSource]
@@ -152,9 +163,33 @@ async function api(path, request) {
   if (path.pathname === '/api/experiences/qa-experience/review') {
     const item = documents.find(doc => doc.entry_id === 'qa-experience'); item.state = body.decision; return item
   }
-  if (path.pathname === '/api/evaluations') return []
+  if (path.pathname === '/api/evaluations') return evaluationReports
+  if (path.pathname === '/api/evaluations/from-session') {
+    const report = evaluationReport(); Object.assign(report.scope_metadata, body); evaluationReports.unshift(report); return report
+  }
+  if (path.pathname === '/api/evaluations/qa-evaluation') return evaluationReports[0]
+  if (path.pathname === '/api/evaluations/qa-evaluation/export') return { report: evaluationReports[0], manifest: { manifest_id: 'qa-manifest', records_sha256: 'b'.repeat(64) } }
+  if (path.pathname === '/api/evaluations/qa-evaluation/records/observations/qa-frozen-observation') return { evaluation_id: 'qa-evaluation', records_sha256: 'b'.repeat(64), kind: 'observation', record: { id: 'qa-frozen-observation', point_id: point.point_id, raw_value: '0.5', value: 0.5, source_file_id: 'qa-frozen-file', row_number: 12 } }
+  if (path.pathname === '/api/evaluations/qa-evaluation/manifest') return {
+    manifest_id: 'qa-manifest', model_version: 'QA离线基线:test', rule_version: 'qa-draft', preprocess_version: 'qa-preprocess', dataset_split: 'unclassified',
+    scope_metadata: evaluationReports[0].scope_metadata, records_sha256: 'b'.repeat(64), manifest_sha256: 'c'.repeat(64),
+    frozen_records: { actual_events: [], alert_events: [{ event_id: 'qa-predicted-event' }], samples: Array.from({ length: 51 }, (_, index) => ({ sample_id: 'qa-frozen-sample-' + index })), tasks: [{ task_id: 'qa-tool-task' }], valid_monitoring_hours: 1,
+      observations: [{ id: 'qa-frozen-observation', point_id: point.point_id, raw_value: '0.5', value: 0.5, source_file_id: 'qa-frozen-file', row_number: 12 }],
+      forecast_runs: [{ run_id: 'qa-frozen-run', model_id: modelCatalog[0].model_id, model_version: 'test', as_of: session.start_as_of, outputs: [] }] }, matching_config: { tolerance_seconds: 0 } }
+  if (/^\/api\/evaluations\/qa-evaluation\/metrics\//.test(path.pathname)) {
+    const offset = Number(path.searchParams.get('offset') || 0), metric = path.pathname.split('/').at(-1)
+    const packet = { evaluation_id: 'qa-evaluation', manifest_id: 'qa-manifest', records_sha256: 'b'.repeat(64), manifest_sha256: 'c'.repeat(64), metric,
+      variant: path.searchParams.get('variant') || 'primary', value: metric === 'mae' ? 0.1 : metric === 'recall' ? null : 0,
+      numerator: metric === 'mae' ? 5.1 : 0, denominator: metric === 'mae' ? 51 : metric === 'recall' ? 0 : 2, total: metric === 'mae' ? 51 : 1, offset, limit: 50,
+      status: metric === 'recall' ? 'unavailable' : 'calculated', reason: metric === 'recall' ? 'no_actual_events' : null,
+      rows: Array.from({ length: metric === 'mae' ? offset ? 1 : 50 : 1 }, (_, i) => ({ kind: 'sample', classification: 'FP', absolute_error: 0.1, included: true,
+        record: { sample_id: `qa-frozen-${offset+i}`, run_id: 'qa-frozen-run', point_id: point.point_id, target_statistic: 'max', actual_value: 0.5, predicted_value: 0.6, evidence_refs: [{ kind: 'observation', observation_id: 'qa-frozen-observation', source_file_id: 'qa-frozen-file', row_number: 12 }] },
+        snapshots: { sample: { sample_id: `qa-frozen-${offset+i}`, run_id: 'qa-frozen-run', point_id: point.point_id, target_statistic: 'max', actual_value: 0.5, predicted_value: 0.6, evidence_refs: [{ kind: 'observation', observation_id: 'qa-frozen-observation', source_file_id: 'qa-frozen-file', row_number: 12 }] } } })) }
+    const gate = nextMetricGate; nextMetricGate = null; if (gate) await gate
+    return packet
+  }
   if (path.pathname === '/api/sessions' && request.method === 'POST') {
-    session = { ...body, session_id: `qa-session-${savedSessions.size + 1}`, face_id: source.face_id, as_of: body.start_as_of, state: 'paused', speed: 1 }
+    session = { ...body, session_id: `qa-session-${savedSessions.size + 1}`, face_id: source.face_id, as_of: body.start_as_of, state: 'paused', speed: body.speed || 1 }
     savedSessions.set(session.session_id, session)
     return session
   }
@@ -164,12 +199,12 @@ async function api(path, request) {
     return session
   }
   if (/^\/api\/sessions\/qa-session-\d+\/actions$/.test(path.pathname)) {
-    session = { ...session, state: body.action === 'pause' ? 'paused' : 'running' }
+    session = { ...session, ...(body.action === 'set_speed' ? { speed: body.speed } : { state: body.action === 'pause' ? 'paused' : 'running' }) }
     savedSessions.set(session.session_id, session)
     return session
   }
   if (/^\/api\/sessions\/qa-session-\d+\/tick$/.test(path.pathname)) {
-    session = { ...session, as_of: body.target_as_of || new Date(Date.parse(session.as_of) + 60000).toISOString() }
+    session = { ...session, as_of: body.target_as_of || new Date(Date.parse(session.as_of) + 60000 * session.speed).toISOString() }
     savedSessions.set(session.session_id, session)
     if (generateOnTick && !eventPresent) { eventPresent = true; startBrief() }
     return { session, status: 'completed', forecasts: [forecast()], events: eventPresent ? [event()] : [], briefs: briefStatus === 'not_started' ? [] : [briefPacket()] }
@@ -632,6 +667,95 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
         assert.equal(await briefPanel.count(), 0, '迟到简报不回写工况页面')
         assert.deepEqual(errors, [])
       } finally { releaseBrief(); releaseUiEvidence(); await context.close() }
+    })
+    await t.test('evaluation freezes current session and drills into paged frozen samples', async () => {
+      reset('safety_management')
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true })
+      let releaseMetric = () => {}
+      try {
+        const page = await monitoredPage(context); page.setDefaultTimeout(6000)
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user')
+        await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.getByRole('heading', { name: 'TEST-UI 工作面', exact: true }).waitFor()
+        await page.getByRole('button', { name: '创建会话', exact: true }).click()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        await page.getByRole('button', { name: '前进 60 秒 →', exact: true }).click()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        await page.getByRole('button', { name: '模型与评估', exact: false }).click()
+        await page.getByRole('button', { name: '冻结当前会话评估', exact: true }).click()
+        const report = page.getByRole('region', { name: '冻结评估详情', exact: true })
+        await report.getByText('没有实测阈值事件', { exact: true }).waitFor()
+        assert.equal(calls.findLast(call => call.path === '/api/evaluations/from-session').body.dataset_split, 'unclassified')
+        assert.equal(calls.findLast(call => call.path === '/api/evaluations/from-session').body.model_version, 'test')
+        const liveReads = calls.filter(call => ['/api/evidence','/api/observations'].includes(call.path)).length
+        await report.getByRole('button', { name: '查看平均绝对误差明细', exact: true }).click()
+        const details = page.getByRole('region', { name: '指标明细', exact: true })
+        await details.getByText('共51条', { exact: true }).waitFor()
+        await details.getByRole('button', { name: '查看冻结记录 1', exact: true }).click()
+        const frozen = page.getByRole('region', { name: '冻结记录', exact: true })
+        await frozen.getByText('qa-frozen-0', { exact: true }).waitFor()
+        assert.equal(await frozen.getByText('实测均值', { exact: true }).count(), 0, '最大值口径不能标为实测均值')
+        await frozen.getByText('实测统计值', { exact: true }).waitFor()
+        await frozen.getByText('最大值', { exact: true }).waitFor()
+        assert.equal(await page.getByText(/有效实测均值配对/).count(), 0, '最大值评估不能用均值口径说明')
+        await frozen.getByText('冻结观测 · 1条', { exact: true }).click()
+        await frozen.getByText('qa-frozen-file', { exact: true }).waitFor()
+        assert.ok(calls.some(call => call.path.endsWith('/records/observations/qa-frozen-observation')), '原始值通过冻结报告观测接口回查')
+        assert.equal(calls.filter(call => ['/api/evidence','/api/observations'].includes(call.path)).length, liveReads, '指标依据读取冻结记录，不重查当前事件或活观测')
+        await frozen.screenshot({ path: resolve(artifactDir, 'evaluation-record-1440.png') })
+        await details.getByRole('button', { name: '下一页', exact: true }).click()
+        await details.getByText('误报样本 · qa-frozen-50', { exact: true }).waitFor()
+        assert.equal(calls.findLast(call => call.path.endsWith('/metrics/mae')).query.offset, '50')
+        const download = page.waitForEvent('download')
+        await report.getByRole('button', { name: '下载冻结报告', exact: true }).click()
+        await download
+        assert.equal(calls.findLast(call => call.path.endsWith('/export')).authenticated, true)
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: 900 })
+          await page.screenshot({ path: resolve(artifactDir, `evaluation-frozen-${width}.png`), fullPage: true })
+          const overflow = await page.evaluate(() => [...document.querySelectorAll('body *')].map(element => ({ tag: element.tagName, className: String(element.className), right: element.getBoundingClientRect().right, width: element.getBoundingClientRect().width })).filter(item => item.right > innerWidth + 1 && item.width > 0).slice(0, 20))
+          await writeFile(resolve(artifactDir, `evaluation-overflow-${width}.json`), JSON.stringify(overflow, null, 2))
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `评估页面${width}px无整页溢出`)
+        }
+        nextMetricGate = new Promise(resolveGate => { releaseMetric = resolveGate })
+        await Promise.all([page.waitForRequest(request => request.url().includes('/metrics/precision')), report.getByRole('button', { name: '查看逐事件查准率明细', exact: true }).click()])
+        await page.getByRole('combobox', { name: '数据源', exact: true }).selectOption(otherSource.source_id)
+        releaseMetric()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        assert.equal(await page.getByRole('region', { name: '指标明细', exact: true }).count(), 0, '来源切换后迟到明细不回写')
+      } finally { releaseMetric(); await context.close() }
+    })
+    await t.test('replay speed and linked restart preserve the original session clock', async () => {
+      reset('safety_management')
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+      try {
+        const page = await monitoredPage(context); page.setDefaultTimeout(6000)
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user')
+        await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.getByRole('heading', { name: 'TEST-UI 工作面', exact: true }).waitFor()
+        await page.getByRole('button', { name: '创建会话', exact: true }).click()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        const oldId = session.session_id, oldClock = session.as_of
+        await page.getByRole('combobox', { name: '回放倍速', exact: true }).selectOption('5')
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        assert.deepEqual(calls.findLast(call => call.path.endsWith('/actions')).body, { action: 'set_speed', speed: 5 })
+        await page.getByRole('button', { name: '前进 60 秒 →', exact: true }).click()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        const frozenOldClock = session.as_of
+        await page.getByText('重新回放', { exact: true }).click()
+        await page.getByLabel('回放起点（UTC+8）', { exact: true }).fill(mineTime(oldClock).replace(' ', 'T').slice(0,16))
+        await page.getByRole('button', { name: '从此处新建回放', exact: true }).click()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        const posted = calls.findLast(call => call.path === '/api/sessions' && call.method === 'POST').body
+        assert.equal(posted.parent_session_id, oldId)
+        assert.equal(posted.speed, 5)
+        assert.equal(savedSessions.get(oldId).as_of, frozenOldClock)
+        assert.notEqual(session.session_id, oldId)
+      } finally { await context.close() }
     })
     assert.deepEqual(externalRequests, [], '浏览器仅访问本机隔离服务')
   } finally {

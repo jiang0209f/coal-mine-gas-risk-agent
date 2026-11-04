@@ -27,6 +27,7 @@ def build_services(configuration):
     from app.services.knowledge.service import KnowledgeService
     from app.services.cases.service import CasesService
     from app.services.evaluation.service import EvaluationService
+    from app.services.evaluation.collector import SessionEvaluationCollector
     from app.services.agent.service import AgentService
     from app.services.agent.briefs import EventBriefsService
 
@@ -48,6 +49,7 @@ def build_services(configuration):
     s["event_briefs"] = EventBriefsService(store, s, configuration)
     s["event_briefs"].recover_interrupted()
     s["runner"] = SessionRunner(s)
+    s["evaluation_collector"] = SessionEvaluationCollector(store, s)
     return s
 
 
