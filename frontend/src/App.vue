@@ -1,18 +1,16 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import * as echarts from 'echarts/core'
-import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, MarkLineComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { createApiClient } from './api.mjs'
-import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, queryString, seriesToPoints } from './utils.mjs'
+import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, queryString } from './utils.mjs'
+import { chooseModelKey, contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, latestVisibleReading, modelKey, replayStart } from './workspace.mjs'
+import MonitorWorkspace from './components/MonitorWorkspace.vue'
 
-echarts.use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, CanvasRenderer])
 const token = ref(''), user = ref(null), username = ref(''), password = ref('')
 const busy = ref(''), error = ref(''), notice = ref(''), tab = ref('monitor')
 const sources = ref([]), points = ref([]), sessions = ref([]), sourceId = ref(''), pointId = ref('')
-const active = ref(null), mode = ref('historical_replay'), startTime = ref('2022-01-01T00:00')
+const active = ref(null), mode = ref('historical_replay'), startTime = ref(''), coverage = ref(null)
 const series = ref({ rows: [] }), events = ref([]), rules = ref(null), models = ref([]), reports = ref([])
+const selectedModel = ref(''), forecast = ref(null), pointReadings = ref({}), forecastLoading = ref(false), forecastError = ref(''), eventLoading = ref(false)
 const selectedEvent = ref(null), evidence = ref(null), caseResult = ref(null), selectedAdvice = ref('')
 const caseContent = ref(''), refs = ref([]), referenceQuery = ref(''), searchResults = ref([]), selectedRefs = ref([])
 const uploadFile = ref(null), importResult = ref(null), importStart = ref(''), importEnd = ref('')
@@ -20,10 +18,9 @@ const importLineage = ref('unknown')
 const mappingText = ref('')
 const documentForm = ref({ title: '', source: '', version: '1', text: '', page: 1 })
 const chatInput = ref(''), messages = ref([]), chatBusy = ref(false), chatTask = ref(null)
-const chartEl = ref(null)
-let chart, observer, pollVersion = 0, playbackTimer
+let pollVersion = 0, playbackTimer, busySequence = 0
+const sourceRequests = createRequestGuard(), workspaceRequests = createRequestGuard(), eventRequests = createRequestGuard(), forecastRequests = createRequestGuard()
 const roles = { ventilation: '通风人员', gas_governance: '瓦斯治理人员', safety_management: '安全管理人员' }
-const levels = { red: '红色', orange: '橙色', yellow: '黄色', blue: '蓝色' }
 const phases = { new: '待确认', confirmed: '已确认', advice_reviewed: '建议已审核', executed: '已执行', feedback_submitted: '待复核', reviewed: '已复核' }
 const states = { running: '进行中', paused: '已暂停', ended: '已结束', completed: '已完成', failed: '失败', partial: '部分完成', awaiting_input: '待补充', cancelled: '已取消' }
 const attributionNeeds = {
@@ -42,9 +39,8 @@ const metricNames = { precision: '逐事件查准率', recall: '逐事件召回�
 const safety = computed(() => user.value?.roles?.includes('safety_management'))
 const source = computed(() => sources.value.find(item => item.source_id === sourceId.value))
 const point = computed(() => points.value.find(item => item.point_id === pointId.value))
-const chartPoints = computed(() => active.value ? seriesToPoints(series.value, active.value.as_of) : [])
-const lastValue = computed(() => chartPoints.value.filter(item => item[1] !== null).at(-1)?.[1])
-const redCount = computed(() => events.value.filter(item => item.alert_level === 'red').length)
+const isMethane = computed(() => point.value?.quantity === 'methane')
+const chartWindow = computed(() => active.value ? displayWindow(active.value.as_of, selectedEvent.value) : null)
 const phase = computed(() => caseResult.value?.case?.phase || 'new')
 const attribution = computed(() => evidence.value?.candidate_attribution)
 const adviceOptions = computed(() => caseResult.value?.advice_versions || [])
@@ -58,13 +54,27 @@ const pretty = value => JSON.stringify(value, null, 2)
 const qualityLabel = flag => qualityNames[flag] || flag
 
 function clearLogin() {
+  sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate()
   pollVersion++
   token.value = ''; user.value = null; active.value = null; chatBusy.value = false
-  sources.value = []; sessions.value = []; selectedEvent.value = null; messages.value = []
+  sources.value = []; sessions.value = []; points.value = []; messages.value = []; clearMonitor()
 }
 async function run(label, callback) {
+  const sequence = ++busySequence
   busy.value = label; error.value = ''; notice.value = ''
-  try { return await callback() } catch (caught) { error.value = caught.message } finally { busy.value = '' }
+  try { return await callback() } catch (caught) { if (sequence === busySequence) error.value = caught.message } finally { if (sequence === busySequence) busy.value = '' }
+}
+
+function clearEvent() {
+  eventRequests.invalidate(); eventLoading.value = false
+  selectedEvent.value = null; evidence.value = null; caseResult.value = null; selectedAdvice.value = ''
+  selectedRefs.value = []; searchResults.value = []; caseContent.value = ''
+}
+function clearMonitor() {
+  workspaceRequests.invalidate(); forecastRequests.invalidate()
+  series.value = { rows: [] }; events.value = []; rules.value = null; models.value = []
+  forecast.value = null; selectedModel.value = ''; pointReadings.value = {}; forecastLoading.value = false; forecastError.value = ''
+  clearEvent()
 }
 async function login() {
   await run('正在登录', async () => {
@@ -85,27 +95,41 @@ async function loadBase() {
   if (safety.value) reports.value = list(await api('/evaluations'))
 }
 async function changeSource() {
-  points.value = sourceId.value ? list(await api(`/points?${queryString({ source_id: sourceId.value })}`)) : []
-  pointId.value = points.value[0]?.point_id || ''
-  if (active.value?.source_id !== sourceId.value) {
-    active.value = null; series.value = { rows: [] }; events.value = []; rules.value = null; models.value = []
-    selectedEvent.value = null; evidence.value = null; caseResult.value = null; pollVersion++; chatBusy.value = false
-  }
+  const requestedSource = sourceId.value, request = sourceRequests.begin()
+  const previousPoint = pointId.value
+  clearMonitor(); points.value = []; pointId.value = ''; coverage.value = null; startTime.value = ''
+  if (active.value?.source_id !== requestedSource) active.value = null
+  pollVersion++; chatBusy.value = false; messages.value = []
+  const results = requestedSource ? await Promise.allSettled([
+    api(`/points?${queryString({ source_id: requestedSource })}`),
+    api(`/sources/${encodeURIComponent(requestedSource)}/coverage`),
+  ]) : []
+  if (!sourceRequests.isCurrent(request) || sourceId.value !== requestedSource) return
+  if (results[0]?.status === 'fulfilled') points.value = list(results[0].value)
+  else if (results[0]) throw results[0].reason
+  pointId.value = points.value.some(item => item.point_id === previousPoint) ? previousPoint : (points.value.find(item => item.quantity === 'methane') || points.value[0])?.point_id || ''
+  if (results[1]?.status === 'fulfilled') { coverage.value = results[1].value; startTime.value = replayStart(coverage.value) }
+  else if (results[1]) error.value = results[1].reason.message
   importLineage.value = 'unknown'
   resetMapping()
 }
 function resetMapping() {
   mappingText.value = pretty({ time_column: 'STime', value_columns: { SValue: pointId.value }, timezone: '+08:00', header_row: 1, lineage: 'unknown', invalid_values: [-999999] })
 }
-async function choosePoint() {
+async function choosePoint(value) {
+  if (typeof value === 'string') pointId.value = value
+  clearMonitor()
   resetMapping()
-  selectedEvent.value = null; evidence.value = null; caseResult.value = null
   await run('加载点位', refreshWorkspace)
 }
 async function createSession() {
   await run('创建会话', async () => {
-    active.value = await post('/sessions', { source_id: sourceId.value, mode: mode.value, start_as_of: chinaInputToIso(startTime.value) })
-    sessions.value = list(await api('/sessions')); selectedEvent.value = null; messages.value = []; pollVersion++; chatBusy.value = false
+    const requestedSource = sourceId.value, request = sourceRequests.begin()
+    clearMonitor()
+    const result = await post('/sessions', { source_id: requestedSource, mode: mode.value, start_as_of: mode.value === 'realtime' ? new Date().toISOString() : chinaInputToIso(startTime.value) })
+    if (!sourceRequests.isCurrent(request) || sourceId.value !== requestedSource) return
+    active.value = result
+    sessions.value = list(await api('/sessions')); messages.value = []; pollVersion++; chatBusy.value = false
     await refreshWorkspace()
   })
 }
@@ -113,8 +137,11 @@ async function selectSession(event) {
   const id = event.target.value
   if (!id) return
   await run('加载会话', async () => {
-    pollVersion++; chatBusy.value = false; selectedEvent.value = null; evidence.value = null; caseResult.value = null; messages.value = []
-    active.value = await api(`/sessions/${encodeURIComponent(id)}`)
+    const request = sourceRequests.begin()
+    pollVersion++; chatBusy.value = false; messages.value = []; clearMonitor(); active.value = null
+    const result = await api(`/sessions/${encodeURIComponent(id)}`)
+    if (!sourceRequests.isCurrent(request)) return
+    active.value = result
     sourceId.value = active.value.source_id
     await changeSource(); await refreshWorkspace()
   })
@@ -123,66 +150,160 @@ async function refreshWorkspace() {
   if (!active.value || !pointId.value) return
   const session = active.value
   const selectedPoint = pointId.value
+  const request = workspaceRequests.begin(), scope = contextKey(session, selectedPoint), previousEvent = selectedEvent.value
+  const methane = isMethane.value
+  const window = displayWindow(session.as_of, previousEvent)
+  const currentPoints = [...points.value]
+  series.value = { rows: [] }; events.value = []; rules.value = null; forecast.value = null; pointReadings.value = {}
+  forecastRequests.invalidate(); eventRequests.invalidate(); evidence.value = null; caseResult.value = null
   const params = { session_id: session.session_id, point_id: selectedPoint }
   const results = await Promise.allSettled([
-    api(`/observations?${queryString({ ...params, ...observationWindow(session.as_of), aggregation_seconds: 60 })}`),
-    api(`/events?${queryString(params)}`),
-    api(`/rules?${queryString({ face_id: source.value?.face_id, point_id: pointId.value })}`),
-    api(`/models?${queryString(params)}`),
+    api(`/observations?${queryString({ ...params, ...window, aggregation_seconds: 60, limit: 1000 })}`),
+    methane ? api(`/events?${queryString(params)}`) : Promise.resolve([]),
+    methane ? api(`/rules?${queryString({ face_id: source.value?.face_id, point_id: selectedPoint })}`) : Promise.resolve(null),
+    methane ? api(`/models?${queryString(params)}`) : Promise.resolve([]),
+    ...currentPoints.map(item => api(`/observations?${queryString({ session_id: session.session_id, point_id: item.point_id, ...observationWindow(session.as_of, 2), aggregation_seconds: 60, limit: 10 })}`)),
   ])
-  if (active.value?.session_id !== session.session_id || active.value?.as_of !== session.as_of || pointId.value !== selectedPoint) return
+  if (!workspaceRequests.isCurrent(request) || contextKey(active.value, pointId.value) !== scope) return
   const targets = [series, events, rules, models]
-  results.forEach((result, index) => {
+  results.slice(0, 4).forEach((result, index) => {
     if (result.status === 'fulfilled') targets[index].value = result.value
     else error.value = result.reason.message
   })
+  pointReadings.value = Object.fromEntries(results.slice(4).map((result, index) => {
+    const row = result.status === 'fulfilled' ? latestVisibleReading(result.value, session.as_of) : null
+    return [currentPoints[index].point_id, row ? { ...row, unit: result.value.unit || currentPoints[index].unit } : null]
+  }))
+  selectedModel.value = chooseModelKey(models.value, selectedModel.value)
+  const updatedEvent = previousEvent && events.value.find(item => item.event_id === previousEvent.event_id)
+  if (updatedEvent) await loadEvent(updatedEvent)
+  else { clearEvent(); await loadLatestForecast() }
+}
+
+async function loadLatestForecast() {
+  forecast.value = null; forecastError.value = ''
+  if (!active.value || !isMethane.value || !selectedModel.value) return
+  const session = active.value, selectedPoint = pointId.value, chosen = selectedModel.value
+  const model = models.value.find(item => modelKey(item) === chosen)
+  if (!model) return
+  const request = forecastRequests.begin(), scope = contextKey(session, selectedPoint)
+  forecastLoading.value = true
+  try {
+    const runs = list(await api(`/forecasts?${queryString({ session_id: session.session_id, point_id: selectedPoint, model_id: model.model_id, version: model.version, limit: 1 })}`))
+    if (!forecastRequests.isCurrent(request) || contextKey(active.value, pointId.value) !== scope || selectedModel.value !== chosen) return
+    forecast.value = runs.find(item => forecastMatches(item, session, selectedPoint, chosen)) || null
+  } catch (caught) { if (forecastRequests.isCurrent(request)) forecastError.value = caught.message }
+  finally { if (forecastRequests.isCurrent(request)) forecastLoading.value = false }
+}
+
+async function chooseModel(value) {
+  forecastRequests.invalidate(); forecastLoading.value = false; forecast.value = null; selectedModel.value = value
+  clearEvent()
+  await run('加载模型结果', async () => { await refreshWorkspace() })
+}
+
+async function runForecast() {
+  if (!active.value || !isMethane.value || !selectedModel.value) return
+  clearEvent()
+  await run('运行预测', async () => {
+    const session = active.value, selectedPoint = pointId.value, chosen = selectedModel.value
+    const model = models.value.find(item => modelKey(item) === chosen)
+    if (!model) return
+    const request = forecastRequests.begin(), scope = contextKey(session, selectedPoint)
+    forecast.value = null; forecastError.value = ''; forecastLoading.value = true
+    try {
+      const result = await post('/forecasts', { session_id: session.session_id, point_id: selectedPoint, model_id: model.model_id, version: model.version })
+      if (!forecastRequests.isCurrent(request) || contextKey(active.value, pointId.value) !== scope || selectedModel.value !== chosen) return
+      forecast.value = forecastMatches(result, session, selectedPoint, chosen) ? result : null
+      await refreshObservedSeries(session, selectedPoint, scope)
+    } catch (caught) { if (forecastRequests.isCurrent(request)) forecastError.value = caught.message }
+    finally { if (forecastRequests.isCurrent(request)) forecastLoading.value = false }
+  })
+}
+
+async function refreshObservedSeries(session, selectedPoint, scope) {
+  const result = await api(`/observations?${queryString({ session_id: session.session_id, point_id: selectedPoint, ...displayWindow(session.as_of), aggregation_seconds: 60, limit: 1000 })}`)
+  if (contextKey(active.value, pointId.value) === scope && !selectedEvent.value) series.value = result
 }
 async function sessionAction(action) {
   await run('更新会话', async () => {
-    await post(`/sessions/${active.value.session_id}/actions`, { action })
-    active.value = await api(`/sessions/${active.value.session_id}`)
+    const sessionId = active.value.session_id
+    await post(`/sessions/${sessionId}/actions`, { action })
+    const result = await api(`/sessions/${sessionId}`)
+    if (active.value?.session_id !== sessionId) return
+    active.value = result
     await refreshWorkspace()
   })
 }
 async function tick(seconds = null) {
   if (!active.value || busy.value) return
   await run('推进数据时间', async () => {
-    await post(`/sessions/${active.value.session_id}/tick`, seconds === null || active.value.mode === 'realtime' ? {} : { target_as_of: advanceAsOf(active.value.as_of, seconds) })
-    active.value = await api(`/sessions/${active.value.session_id}`)
+    const sessionId = active.value.session_id
+    await post(`/sessions/${sessionId}/tick`, seconds === null || active.value.mode === 'realtime' ? {} : { target_as_of: advanceAsOf(active.value.as_of, seconds) })
+    const result = await api(`/sessions/${sessionId}`)
+    if (active.value?.session_id !== sessionId) return
+    active.value = result
     await refreshWorkspace()
-    if (selectedEvent.value) await loadEvent(selectedEvent.value)
   })
 }
 async function loadEvent(event) {
+  if (!event || !active.value || event.point_id !== pointId.value) return
+  const request = eventRequests.begin(), session = active.value, selectedPoint = pointId.value, scope = contextKey(session, selectedPoint)
+  const currentForecast = forecast.value, chosenModel = selectedModel.value
+  if (selectedEvent.value?.event_id !== event.event_id || selectedEvent.value?.event_revision !== event.event_revision) caseContent.value = ''
+  forecastRequests.invalidate(); forecast.value = forecastForEvent(currentForecast, null, session, selectedPoint, chosenModel); forecastLoading.value = false; forecastError.value = ''
+  evidence.value = null; caseResult.value = null; selectedAdvice.value = ''; selectedRefs.value = []; searchResults.value = []; series.value = { rows: [] }
   selectedEvent.value = event
-  const [bundle, caseData] = await Promise.all([
-    api(`/evidence?${queryString({ session_id: active.value.session_id, event_id: event.event_id })}`),
-    api(`/cases/${event.event_id}?${queryString({ session_id: active.value.session_id })}`),
-  ])
-  if (selectedEvent.value?.event_id !== event.event_id) return
-  evidence.value = bundle; caseResult.value = caseData
-  const latest = caseData.advice_versions?.at(-1)
-  selectedAdvice.value = latest ? `${latest.advice_id}:${latest.version}` : ''
+  eventLoading.value = true
+  try {
+    const results = await Promise.allSettled([
+      api(`/evidence?${queryString({ session_id: session.session_id, event_id: event.event_id, event_revision: event.event_revision })}`),
+      api(`/cases/${event.event_id}?${queryString({ session_id: session.session_id })}`),
+      api(`/observations?${queryString({ session_id: session.session_id, point_id: selectedPoint, ...displayWindow(session.as_of, event), aggregation_seconds: 60, limit: 1000 })}`),
+    ])
+    if (!eventRequests.isCurrent(request) || contextKey(active.value, pointId.value) !== scope) return
+    if (results[0].status === 'fulfilled') {
+      const bundle = results[0].value
+      evidence.value = bundle
+      const linked = forecastForEvent(currentForecast, bundle, session, selectedPoint, chosenModel)
+      if (linked) { forecast.value = linked; selectedModel.value = modelKey(linked) }
+    } else error.value = results[0].reason.message
+    if (results[1].status === 'fulfilled') {
+      caseResult.value = results[1].value
+      const latest = caseResult.value.advice_versions?.at(-1)
+      selectedAdvice.value = latest ? `${latest.advice_id}:${latest.version}` : ''
+    } else error.value = results[1].reason.message
+    if (results[2].status === 'fulfilled') series.value = results[2].value
+    else { series.value = { rows: [] }; error.value = results[2].reason.message }
+    if (!forecast.value) await loadLatestForecast()
+  } finally { if (eventRequests.isCurrent(request)) eventLoading.value = false }
 }
 async function searchReferences() {
   await run('检索已批准资料', async () => {
-    searchResults.value = list(await post('/references/search', { session_id: active.value.session_id, query: referenceQuery.value, event_id: selectedEvent.value?.event_id }))
+    const scope = contextKey(active.value, pointId.value), eventId = selectedEvent.value?.event_id
+    const result = await post('/references/search', { session_id: active.value.session_id, query: referenceQuery.value, event_id: eventId })
+    if (contextKey(active.value, pointId.value) !== scope || selectedEvent.value?.event_id !== eventId) return
+    searchResults.value = list(result)
     selectedRefs.value = []
   })
 }
 async function draftAdvice() {
   await run('生成带出处建议', async () => {
-    await post('/advice', { session_id: active.value.session_id, event_id: selectedEvent.value.event_id, reference_ids: selectedRefs.value })
+    const scope = contextKey(active.value, pointId.value), eventId = selectedEvent.value.event_id
+    await post('/advice', { session_id: active.value.session_id, event_id: eventId, reference_ids: selectedRefs.value })
+    if (contextKey(active.value, pointId.value) !== scope || selectedEvent.value?.event_id !== eventId) return
     await loadEvent(selectedEvent.value); notice.value = '已生成新的建议版本，请人工审核。'
   })
 }
 async function recordAction(actionType, decision) {
   await run('提交人工记录', async () => {
-    await post(`/cases/${selectedEvent.value.event_id}/actions`, {
+    const scope = contextKey(active.value, pointId.value), eventId = selectedEvent.value.event_id
+    await post(`/cases/${eventId}/actions`, {
       session_id: active.value.session_id, action_type: actionType, operation_context: operationContext.value,
       content: caseContent.value, advice_id: chosenAdvice.value?.advice_id,
       advice_version: chosenAdvice.value?.version, review_decision: decision,
     })
+    if (contextKey(active.value, pointId.value) !== scope || selectedEvent.value?.event_id !== eventId) return
     caseContent.value = ''; await loadEvent(selectedEvent.value); notice.value = '操作已保存，可在处置记录中回查。'
   })
 }
@@ -246,38 +367,11 @@ async function cancelChat() {
     chatTask.value = await post(`/tasks/${chatTask.value.task_id}/cancel`, {})
   })
 }
-function renderChart() {
-  if (!chartEl.value) return
-  if (chart && chart.getDom() !== chartEl.value) { observer?.disconnect(); chart.dispose(); chart = null }
-  if (!chart) {
-    chart = echarts.init(chartEl.value)
-    observer = new ResizeObserver(() => chart?.resize()); observer.observe(chartEl.value)
-  }
-  const marks = rules.value ? [
-    { name: '实测红色', yAxis: rules.value.observed_red_threshold, lineStyle: { color: '#d95c58' } },
-    { name: '实测橙色', yAxis: rules.value.observed_orange_threshold, lineStyle: { color: '#d6a14c' } },
-  ].filter(item => Number.isFinite(item.yAxis)) : []
-  chart.setOption({ animation: false, textStyle: { fontFamily: 'Microsoft YaHei, sans-serif' },
-    grid: { left: 48, right: 30, top: 24, bottom: 34 },
-    tooltip: { trigger: 'axis', confine: true, formatter: entries => `${mineTime(entries[0]?.value?.[0])}<br>实测：${entries[0]?.value?.[1] ?? '缺测'} ${series.value.unit || ''}` },
-    xAxis: { type: 'time', min: active.value ? Date.parse(observationWindow(active.value.as_of).start_at) : undefined,
-      max: active.value ? Date.parse(active.value.as_of) : undefined,
-      axisLine: { lineStyle: { color: '#dce3e8' } }, splitLine: { show: false }, axisLabel: { color: '#82909a', formatter: value => mineTime(value).slice(11, 16) } },
-    yAxis: { type: 'value', min: 0, axisLabel: { color: '#82909a' }, splitLine: { lineStyle: { color: '#edf1f4' } } },
-    series: [{ name: '实测浓度', type: 'line', data: chartPoints.value,
-      showSymbol: chartPoints.value.filter(item => item[1] !== null).length < 2, symbolSize: 5, connectNulls: false,
-      lineStyle: { width: 2, color: '#287b86' }, itemStyle: { color: '#287b86' },
-      areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(40,123,134,0.13)' }, { offset: 1, color: 'rgba(40,123,134,0)' }]) },
-      markLine: { silent: true, symbol: 'none', label: { formatter: '{b}', position: 'insideEndTop', fontSize: 10 }, lineStyle: { type: 'dashed', width: 1 }, data: marks },
-    }],
-  }, true)
-}
-watch([chartPoints, rules, tab, chartEl], () => nextTick(renderChart))
 watch(active, () => {
   clearInterval(playbackTimer)
   if (active.value?.state === 'running') playbackTimer = setInterval(() => tick(), 5000)
 })
-onBeforeUnmount(() => { pollVersion++; clearInterval(playbackTimer); observer?.disconnect(); chart?.dispose() })
+onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate(); clearInterval(playbackTimer) })
 </script>
 
 <template>
@@ -291,15 +385,14 @@ onBeforeUnmount(() => { pollVersion++; clearInterval(playbackTimer); observer?.d
       <div class="page-body"><div class="page-heading"><div><p class="eyebrow">工作面监测与处置</p><h1>{{ source?.face_id ? `${source.face_id} 工作面` : '选择工作面数据源' }}</h1><p class="muted">{{ active ? '当前时点可见数据与事件，按来源逐项回查。' : '选择数据源并创建会话，开始查看监测数据。' }}</p></div><button class="secondary" :disabled="!active || !!busy" @click="run('刷新数据', refreshWorkspace)">↻ 刷新</button></div>
       <div v-if="error" class="notice error" role="alert">{{ error }}<button @click="error = ''" aria-label="关闭错误">×</button></div><div v-if="notice" class="notice success" role="status">{{ notice }}<button @click="notice = ''" aria-label="关闭通知">×</button></div><div v-if="busy" class="loading-note" role="status">{{ busy }}…</div>
       <section class="context-panel panel"><div class="context-selects"><label>数据源<select v-model="sourceId" @change="run('加载数据源', changeSource)"><option value="" disabled>请选择</option><option v-for="item in sources" :key="item.source_id" :value="item.source_id">{{ item.name || item.source_id }}</option></select></label><label>监测点<select v-model="pointId" @change="choosePoint"><option value="" disabled>请选择</option><option v-for="item in points" :key="item.point_id" :value="item.point_id">{{ item.name || item.source_tag || item.point_id }}</option></select></label><label>已有会话<select :value="active?.session_id || ''" @change="selectSession"><option value="">选择已有会话</option><option v-for="item in sessions" :key="item.session_id" :value="item.session_id">{{ mineTime(item.as_of, false) }} · {{ states[item.state] || item.state }}</option></select></label></div>
+        <p v-if="coverage" class="coverage-note muted">历史数据范围 {{ mineTime(coverage.start_at, false) }} — {{ mineTime(coverage.end_at, false) }} · {{ Number(coverage.observation_count || 0).toLocaleString() }} 条观测 · {{ coverage.points?.length || points.length }} 个测点</p>
         <div v-if="active" class="session-strip"><span class="tag teal">{{ { historical_replay: '历史回放', simulated_stream: '模拟数据流', realtime: '现场接入' }[active.mode] }}</span><span class="session-clock">{{ mineTime(active.as_of) }}</span><span class="muted">{{ states[active.state] || active.state }}</span><div class="session-buttons"><button class="secondary small" :disabled="!!busy || active.state === 'ended'" @click="sessionAction(active.state === 'running' ? 'pause' : 'resume')">{{ active.state === 'running' ? 'Ⅱ 暂停' : '▷ 继续' }}</button><button class="primary small" :disabled="!!busy || active.state === 'ended'" @click="tick(60)">{{ active.mode === 'realtime' ? '刷新现场时间' : '前进 60 秒 →' }}</button></div></div>
-        <details class="create-session" :open="!active"><summary>创建新会话</summary><div class="form-row"><label>运行方式<select v-model="mode"><option value="historical_replay">历史回放</option><option value="simulated_stream">模拟数据流</option><option value="realtime">现场接入</option></select></label><label>起始时间（UTC+8）<input v-model="startTime" type="datetime-local" step="1"></label><button class="primary" :disabled="!sourceId || !!busy" @click="createSession">创建会话</button></div></details>
+        <details class="create-session" :open="!active"><summary>创建新会话</summary><div class="form-row"><label>运行方式<select v-model="mode"><option value="historical_replay">历史回放</option><option value="simulated_stream">模拟数据流</option><option value="realtime">现场接入</option></select></label><label>起始时间（UTC+8）<input v-model="startTime" type="datetime-local" step="1"></label><button class="primary" :disabled="!sourceId || !!busy || (mode !== 'realtime' && !startTime)" @click="createSession">创建会话</button></div></details>
       </section>
-      <div class="content-grid"><main class="main-column">
+      <div class="content-grid" :class="{ 'monitor-layout': tab === 'monitor' }"><main class="main-column">
       <template v-if="tab === 'monitor'">
-        <div class="metrics-grid"><article class="metric-card"><span>最近有效实测值</span><strong>{{ lastValue === undefined ? '—' : lastValue.toFixed(3) }}<small>{{ series.unit || point?.unit || '%CH4' }}</small></strong><small>{{ point?.unit_status === 'inferred' ? '单位按资料推定' : point?.name || '尚未选择监测点' }}</small></article><article class="metric-card"><span>当前可见事件</span><strong>{{ active ? events.length : '—' }}<small>条</small></strong><small>其中红色 {{ redCount }} 条 · 实测与预测分别标记</small></article><article class="metric-card"><span>有效聚合记录</span><strong>{{ active ? series.quality?.valid_rows ?? chartPoints.filter(item => item[1] !== null).length : '—' }}<small>条</small></strong><small>最近 60 分钟 · 缺口保持可见</small></article></div>
-        <section class="panel chart-panel"><div class="section-heading"><div><h2>瓦斯浓度变化</h2><p>实测 · 60 秒聚合 · {{ series.unit || point?.unit || '单位待核对' }}</p></div><span class="tag">{{ rules?.status === 'team-draft' ? '规则：团队草案' : rules?.rule_version || '规则待加载' }}</span></div><div ref="chartEl" class="chart" role="img" aria-label="当前会话时点之前的瓦斯实测浓度曲线"></div><div v-if="!chartPoints.length" class="chart-empty">{{ active ? '当前时间窗内无可见数据。可检查导入范围或推进会话时间。' : '创建会话后显示实测曲线。' }}</div><div class="chart-footer"><span><i class="line-key"></i>实测浓度</span><span>截止 {{ active ? mineTime(active.as_of) : '—' }}</span></div></section>
-        <section class="panel"><div class="section-heading"><div><h2>预警事件</h2><p>点击事件查看触发依据和人工处置进度。</p></div><span class="count-badge">{{ events.length }}</span></div><div v-if="!events.length" class="empty-state"><span>◎</span><p>{{ active ? '当前时点没有可见事件' : '尚未创建会话' }}</p></div><div v-else class="event-list"><button v-for="event in [...events].sort((a,b) => Date.parse(b.start_at) - Date.parse(a.start_at))" :key="event.event_id" class="event-row" :class="{ selected: selectedEvent?.event_id === event.event_id }" @click="run('加载事件依据', () => loadEvent(event))"><span class="level-mark" :class="event.alert_level"></span><div><strong>{{ event.event_type === 'observed_exceedance' ? '实测超限' : '预测超限' }} <span class="tag" :class="event.alert_level">{{ levels[event.alert_level] || event.alert_level }}</span></strong><small>{{ mineTime(event.start_at) }} · {{ event.point_id }}</small><div class="flag-row"><span v-for="flag in event.quality_flags || []" :key="flag" class="tag">{{ qualityLabel(flag) }}</span></div></div><span class="event-arrow">查看 →</span></button></div></section>
-        <section v-if="rules" class="panel rules-panel"><div class="section-heading"><div><h2>当前分级规则</h2><p>{{ rules.source }}</p></div><span class="tag amber">{{ rules.status === 'team-draft' ? '团队拟定 · 待矿方确认' : rules.rule_version }}</span></div><div class="rule-grid"><div><i class="level-mark red"></i><span>实测红色</span><strong>≥ {{ rules.observed_red_threshold }}%</strong></div><div><i class="level-mark orange"></i><span>实测橙色</span><strong>≥ {{ rules.observed_orange_threshold }}%<small>持续 {{ rules.orange_duration_seconds / 60 }} 分钟</small></strong></div><div><i class="level-mark yellow"></i><span>预测黄色</span><strong>≥ {{ rules.forecast_yellow_threshold }}%</strong></div></div></section>
+        <MonitorWorkspace :session="active" :source="source" :points="points" :point-id="pointId" :series="series" :point-readings="pointReadings" :events="events" :rules="rules" :models="models" :selected-model="selectedModel" :forecast="forecast" :selected-event="selectedEvent" :evidence="evidence" :case-result="caseResult" :busy="busy" :event-loading="eventLoading" :forecast-loading="forecastLoading" :forecast-error="forecastError" :window="chartWindow"
+          @select-point="choosePoint" @select-event="event => run('加载事件依据', () => loadEvent(event))" @select-model="chooseModel" @run-forecast="runForecast" @clear-event="run('返回当前监测', async () => { clearEvent(); await refreshWorkspace() })" @open-case="tab = 'cases'" @refresh="run('刷新数据', refreshWorkspace)" />
         <section v-if="safety" class="panel"><details><summary>历史数据接入</summary><p class="muted">选择文件并核对字段映射；大表可按起止时间分段导入。</p><div class="form-row"><label>数据性质<select v-model="importLineage"><option value="unknown">来源待核实</option><option value="raw">原始监测记录</option><option value="processed">已处理数据</option></select></label><label>数据文件<input type="file" accept=".csv,.xlsx" @change="uploadFile = $event.target.files[0]"></label></div><div class="form-row"><label>开始时间（可选，UTC+8）<input v-model="importStart" type="datetime-local" step="1"></label><label>结束时间（可选，UTC+8）<input v-model="importEnd" type="datetime-local" step="1"></label></div><details><summary>高级配置：字段映射</summary><textarea v-model="mappingText" rows="10" class="code-input" aria-label="导入字段映射JSON"></textarea></details><button class="primary" :disabled="!!busy || !uploadFile || !sourceId" @click="importHistory">上传并导入</button><pre v-if="importResult" class="result-json">{{ pretty(importResult) }}</pre></details></section>
       </template>
       <template v-if="tab === 'knowledge'">
@@ -307,7 +400,7 @@ onBeforeUnmount(() => { pollVersion++; clearInterval(playbackTimer); observer?.d
         <section class="panel"><div class="section-heading"><div><h2>资料版本</h2><p>批准后的版本才进入建议检索。</p></div><button class="secondary small" @click="run('刷新资料', loadReferences)">刷新</button></div><div v-if="!refs.length" class="empty-state"><p>暂无已登记资料</p></div><article v-for="doc in refs" :key="`${doc.entry_id}:${doc.version}`" class="document-row"><div><strong>{{ doc.title || (doc.kind === 'experience' ? '案例经验' : '资料') }}</strong><small>{{ doc.source }} · 版本 {{ doc.version }}</small></div><span class="tag" :class="doc.state === 'approved' ? 'teal' : 'amber'">{{ { approved: '已批准', rejected: '已拒绝', pending_review: '待审核', draft: '草稿' }[doc.state] || doc.state }}</span><div v-if="safety && doc.state === 'pending_review'" class="button-group"><button class="secondary small" @click="reviewDocument(doc, 'approved')">批准</button><button class="ghost small" @click="reviewDocument(doc, 'rejected')">拒绝</button></div></article></section>
         <section v-if="safety" class="panel"><details><summary>登记条文资料</summary><form @submit.prevent="importDocument"><div class="form-row"><label>资料名称<input v-model="documentForm.title" required></label><label>来源<input v-model="documentForm.source" required placeholder="填写真实资料来源"></label></div><div class="form-row"><label>版本<input v-model="documentForm.version" required></label><label>页码<input v-model="documentForm.page" type="number" min="1" required></label></div><label>条文原文<textarea v-model="documentForm.text" rows="5" required placeholder="录入待审核的真实原文"></textarea></label><button class="primary" :disabled="!source?.face_id || !!busy">登记并送审</button></form></details></section>
       </template>
-      <template v-if="tab === 'cases' || (tab === 'monitor' && selectedEvent)">
+      <template v-if="tab === 'cases'">
         <section class="panel"><div class="section-heading"><div><h2>事件依据与处置</h2><p>{{ selectedEvent ? `${mineTime(selectedEvent.start_at)} · ${selectedEvent.point_id}` : '请在监测与预警中选择事件。' }}</p></div><span v-if="selectedEvent" class="tag teal">{{ operationContext === 'rehearsal' ? '演练记录' : '现场记录' }}</span></div>
           <template v-if="selectedEvent && evidence"><div class="evidence-grid"><div><span>实测依据片段</span><strong>{{ evidence.observation_fragments?.length || 0 }} 条</strong></div><div><span>事件修订</span><strong>第 {{ evidence.event_snapshot?.event_revision }} 版</strong></div><div><span>当前处置阶段</span><strong>{{ phases[phase] || phase }}</strong></div></div><p v-for="hint in evidence.condition_hints || []" :key="hint.kind" class="hint">{{ hint.text }}</p><p v-if="evidence.missing_fields?.length" class="hint amber-text">依据缺项：{{ evidence.missing_fields.map(item => ({ observation_fragments: '实测片段', forecast_run: '预测运行' }[item] || item)).join('、') }}</p><details><summary>查看原始依据片段</summary><div class="table-scroll"><table><thead><tr><th>观测时间</th><th>原始值</th><th>有效值</th><th>质量</th></tr></thead><tbody><tr v-for="row in evidence.observation_fragments || []" :key="row.id"><td>{{ mineTime(row.event_time) }}</td><td>{{ row.raw_value ?? '—' }}</td><td>{{ row.value ?? '缺测' }}</td><td>{{ row.quality_flags?.map(qualityLabel).join('、') || '有效' }}</td></tr></tbody></table></div></details>
           <section v-if="attribution" class="subsection attribution-card" aria-label="溯源结果">

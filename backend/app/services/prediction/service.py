@@ -6,7 +6,9 @@ from datetime import datetime, timedelta, timezone
 from math import floor, isfinite
 from uuid import uuid4
 
-from app.db import Store
+from sqlalchemy import select
+
+from app.db import Store, records
 from app.schemas.common import Actor, DomainError, ExecutionContext, now_utc, utcstr
 from app.adapters.model_bundle import ModelNotReady
 
@@ -144,24 +146,27 @@ class PredictionService:
     def run_prediction(
         self, context: ExecutionContext, point_id: str,
         model_id: str | None = None, horizon_seconds: int | None = None,
+        *, version: str | None = None,
     ) -> dict:
+        if version is not None and (model_id is None or not isinstance(version, str) or not version.strip()):
+            raise DomainError("指定模型版本时需要有效的模型编号与版本")
         point = self._point(context, point_id)
         source = self._source(context)
         run = {
             "run_id": str(uuid4()), "session_id": context.session_id, "source_id": context.source_id,
             "face_id": source["face_id"], "point_id": point_id, "as_of": utcstr(context.as_of),
             "cutoff": utcstr(context.as_of), "config_version": context.config_version,
-            "model_id": model_id, "model_version": None, "target_quantity": point.get("quantity"),
+            "model_id": model_id, "model_version": version, "target_quantity": point.get("quantity"),
             "status": "not_ready", "missing_fields": [], "input_refs": [], "input_window": None,
             "outputs": [], "created_at": utcstr(now_utc()),
         }
         if model_id is not None:
             try:
-                model = self.get_model(context, model_id)
+                model = self.get_model(context, model_id, version)
             except DomainError as error:
                 if error.status_code != 404:
                     raise
-                run["missing_fields"] = ["model_id"]
+                run["missing_fields"] = ["model_version" if version is not None else "model_id"]
                 return self._save(run)
             if point_id not in model["point_ids"]:
                 raise DomainError("模型不适用于该点位", code="forbidden", status_code=403)
@@ -317,3 +322,26 @@ class PredictionService:
         if run["session_id"] != context.session_id or run["source_id"] != context.source_id or _datetime(run["as_of"]) > context.as_of:
             raise DomainError("预测运行与会话时钟或来源不一致", code="forbidden", status_code=403)
         return run
+
+    def list_forecasts(self, context: ExecutionContext, point_id: str | None = None,
+                       model_id: str | None = None, version: str | None = None,
+                       limit: int = 20) -> list[dict]:
+        source = self._source(context)
+        if point_id is not None:
+            self._point(context, point_id)
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise DomainError("预测查询数量须为1至100的整数")
+        payload = records.c.payload
+        conditions = [records.c.kind == "forecast_run",
+                      payload["session_id"].as_string() == context.session_id,
+                      payload["source_id"].as_string() == context.source_id,
+                      payload["face_id"].as_string() == source["face_id"],
+                      payload["as_of"].as_string() <= utcstr(context.as_of)]
+        for field, value in (("point_id", point_id), ("model_id", model_id), ("model_version", version)):
+            if value is not None:
+                conditions.append(payload[field].as_string() == value)
+        statement = select(payload).where(*conditions).order_by(
+            payload["as_of"].as_string().desc(), payload["created_at"].as_string().desc(), records.c.id.desc(),
+        ).limit(limit)
+        with self.store.transaction() as connection:
+            return [deepcopy(run) for run in connection.execute(statement).scalars()]

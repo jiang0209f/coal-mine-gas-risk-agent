@@ -73,6 +73,7 @@ class Forecast(Payload):
     session_id: str
     point_id: str
     model_id: str | None = None
+    version: str | None = None
     horizon_seconds: int | None = None
 
 
@@ -172,6 +173,11 @@ def register_source(body: Source, a=Depends(actor), s=Depends(services)):
 @router.get("/points")
 def points(source_id: str | None = None, a=Depends(actor), s=Depends(services)):
     return s["data"].list_points(a, source_id)
+
+
+@router.get("/sources/{source_id}/coverage")
+def source_coverage(source_id: str, a=Depends(actor), s=Depends(services)):
+    return s["data"].get_coverage(a, source_id)
 
 
 @router.post("/points")
@@ -279,7 +285,15 @@ def register_model(body: dict = Body(), a=Depends(actor), s=Depends(services)):
 
 @router.post("/forecasts")
 def forecast(body: Forecast, a=Depends(actor), s=Depends(services)):
-    return s["prediction"].run_prediction(s["sessions"].get_context(a, body.session_id), body.point_id, body.model_id, body.horizon_seconds)
+    return s["prediction"].run_prediction(s["sessions"].get_context(a, body.session_id), body.point_id,
+                                          body.model_id, body.horizon_seconds, version=body.version)
+
+
+@router.get("/forecasts")
+def list_forecasts(session_id: str, point_id: str | None = None, model_id: str | None = None,
+                   version: str | None = None, limit: int = Query(default=20, ge=1, le=100),
+                   a=Depends(actor), s=Depends(services)):
+    return s["prediction"].list_forecasts(s["sessions"].get_context(a, session_id), point_id, model_id, version, limit)
 
 
 @router.get("/forecasts/{run_id}")

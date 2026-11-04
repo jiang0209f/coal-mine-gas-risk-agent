@@ -10,17 +10,37 @@ import { chromium } from 'playwright'
 import { mineTime } from '../src/utils.mjs'
 
 const root = resolve(import.meta.dirname, '..', 'dist')
-const artifactDir = resolve(import.meta.dirname, 'artifacts')
+const artifactDir = resolve(process.env.UI_TEST_ARTIFACT_DIR || resolve(import.meta.dirname, 'artifacts'))
 const browserPath = process.env.UI_TEST_BROWSER || [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
 ].find(path => existsSync(path))
 const source = { source_id: 'qa-source', name: '界面验收数据（测试夹具）', face_id: 'TEST-UI' }
-const point = { point_id: 'qa-T0', source_id: source.source_id, face_id: source.face_id, name: 'T0（界面验收）', unit: '%CH4', unit_status: 'inferred' }
+const otherSource = { source_id: 'qa-other-source', name: '第二来源（测试夹具）', face_id: source.face_id }
+const point = { point_id: 'qa-T0', source_id: source.source_id, face_id: source.face_id, name: 'T0（界面验收）', quantity: 'methane', unit: '%CH4', unit_status: 'inferred' }
+const wind = { point_id: 'qa-wind', source_id: source.source_id, face_id: source.face_id, name: '风速（界面验收）', quantity: 'wind_speed', unit: 'source_native', unit_status: 'inferred' }
+const otherPoint = { ...point, point_id: 'qa-other-T0', source_id: otherSource.source_id, name: '第二来源T0' }
+const modelCatalog = [
+  { model_id: 'QA离线基线', version: 'test', model_type: 'baseline', default_eligible: true, point_ids: [point.point_id], input_window: 2, horizon_seconds: 3600, aggregation_seconds: 300 },
+  { model_id: 'QA专业预测', version: 'trained-test-v1', model_type: 'professional', deployment_stage: 'experimental', default_eligible: false, point_ids: [point.point_id], input_window: 90, horizon_seconds: 3600, aggregation_seconds: 300 },
+]
 const reference = { reference_id: 'qa-approved-reference', kind: 'document', source: 'UI验收资料', locator: { page: 1 }, text: '测试条文：核对监测记录。', operation_context: 'field_record' }
-let role, session, actions, advice, calls, pendingChat, taskState, attributionState
-function reset(value) { role = value; session = null; actions = []; advice = []; calls = []; pendingChat = false; taskState = 'running'; attributionState = 'completed' }
+let role, session, actions, advice, calls, pendingChat, taskState, attributionState, forecastRuns, savedSessions, nextEvidenceGate
+function reset(value) { role = value; session = null; actions = []; advice = []; calls = []; pendingChat = false; taskState = 'running'; attributionState = 'completed'; forecastRuns = []; savedSessions = new Map(); nextEvidenceGate = null }
+function forecast(modelId = modelCatalog[0].model_id, version = modelCatalog[0].version) {
+  const cutoff = Math.floor(Date.parse(session.as_of) / 300000) * 300000
+  const run = { run_id: `qa-forecast-${forecastRuns.length + 1}`, session_id: session.session_id,
+    source_id: session.source_id, face_id: source.face_id, point_id: point.point_id, as_of: session.as_of,
+    cutoff: new Date(cutoff).toISOString(), created_at: session.as_of, model_id: modelId, model_version: version,
+    status: 'completed', model_type: modelId === 'QA专业预测' ? 'professional' : 'baseline', missing_fields: [],
+    input_origin: 'server_observations', input_refs: [{ id: 'qa-input' }], horizon_seconds: 3600,
+    outputs: [{ prediction_stage: modelId === 'QA专业预测' ? 'residual_corrected' : 'baseline_persistence',
+      quantity_semantics: 'physical_forecast', unit: '%CH4', interval_values: Array.from({ length: 12 }, (_, i) => ({
+        start_at: new Date(cutoff + i * 300000).toISOString(), end_at: new Date(cutoff + (i + 1) * 300000).toISOString(), value: 0.55 + i * 0.01 })) }] }
+  forecastRuns.unshift(run)
+  return run
+}
 function event() {
   return { event_id: 'qa-event', session_id: session.session_id, point_id: point.point_id, event_revision: 1,
     start_at: new Date(Date.parse(session.as_of) - 60000).toISOString(), event_type: 'observed_exceedance',
@@ -57,36 +77,62 @@ async function api(path, request) {
   calls.push({ path: path.pathname, query: Object.fromEntries(path.searchParams), method: request.method, body })
   if (path.pathname === '/api/auth/login') return { access_token: 'qa-isolated-token', token_type: 'bearer', user: { user_id: 'qa-user', username: '界面验收账户', roles: [role], face_ids: [source.face_id] } }
   if (path.pathname === '/api/auth/logout') return {}
-  if (path.pathname === '/api/sources') return [source]
-  if (path.pathname === '/api/points') return [point]
+  if (path.pathname === '/api/sources') return [source, otherSource]
+  if (path.pathname === '/api/points') return path.searchParams.get('source_id') === otherSource.source_id ? [otherPoint] : [point, wind]
+  if (/^\/api\/sources\/[^/]+\/coverage$/.test(path.pathname)) {
+    const selectedSource = path.pathname.includes(otherSource.source_id) ? otherSource : source
+    const selectedPoints = selectedSource === source ? [point, wind] : [otherPoint]
+    return { source_id: selectedSource.source_id, face_id: source.face_id, semantics: 'stored_history_catalog', validity_policy: 'non_null_value',
+      observation_count: 2400, valid_observation_count: 2398, start_at: '2022-02-05T12:00:00+00:00', end_at: '2022-02-05T23:59:00+00:00',
+      points: selectedPoints.map(p => ({ ...p, observation_count: 1200, valid_observation_count: 1199,
+        start_at: '2022-02-05T12:00:00+00:00', end_at: '2022-02-05T23:59:00+00:00' })) }
+  }
   if (path.pathname === '/api/references') return []
   if (path.pathname === '/api/evaluations') return []
   if (path.pathname === '/api/sessions' && request.method === 'POST') {
-    session = { ...body, session_id: 'qa-session', face_id: source.face_id, as_of: body.start_as_of, state: 'paused', speed: 1 }
+    session = { ...body, session_id: `qa-session-${savedSessions.size + 1}`, face_id: source.face_id, as_of: body.start_as_of, state: 'paused', speed: 1 }
+    savedSessions.set(session.session_id, session)
     return session
   }
-  if (path.pathname === '/api/sessions') return session ? [session] : []
-  if (path.pathname === '/api/sessions/qa-session') return session
-  if (path.pathname === '/api/sessions/qa-session/actions') {
+  if (path.pathname === '/api/sessions') return [...savedSessions.values()]
+  if (/^\/api\/sessions\/qa-session-\d+$/.test(path.pathname)) {
+    session = savedSessions.get(path.pathname.split('/').at(-1))
+    return session
+  }
+  if (/^\/api\/sessions\/qa-session-\d+\/actions$/.test(path.pathname)) {
     session = { ...session, state: body.action === 'pause' ? 'paused' : 'running' }
+    savedSessions.set(session.session_id, session)
     return session
   }
-  if (path.pathname === '/api/sessions/qa-session/tick') {
+  if (/^\/api\/sessions\/qa-session-\d+\/tick$/.test(path.pathname)) {
     session = { ...session, as_of: body.target_as_of || new Date(Date.parse(session.as_of) + 60000).toISOString() }
-    return { session, status: 'completed' }
+    savedSessions.set(session.session_id, session)
+    return { session, status: 'completed', forecasts: [forecast()] }
   }
-  if (path.pathname === '/api/observations') return { point_id: point.point_id, as_of: session.as_of, unit: '%CH4', total: 3,
+  if (path.pathname === '/api/observations') return { point_id: path.searchParams.get('point_id'), source_id: session.source_id, as_of: session.as_of,
+    unit: path.searchParams.get('point_id') === wind.point_id ? 'source_native' : '%CH4', total: 3,
     quality: { valid_rows: 1, invalid_rows: 1 }, rows: [
       { event_time: new Date(Date.parse(session.as_of) - 120000).toISOString(), value: 0.91 },
       { event_time: new Date(Date.parse(session.as_of) - 60000).toISOString(), value: null },
       { event_time: new Date(Date.parse(session.as_of) + 60000).toISOString(), value: 9.99 },
     ] }
-  if (path.pathname === '/api/events') return [event()]
+  if (path.pathname === '/api/events') return path.searchParams.get('point_id') === wind.point_id ? [] : [event()]
   if (path.pathname === '/api/rules') return { rule_version: 'qa-draft', status: 'team-draft', source: 'UI验收规则（测试夹具）', observed_red_threshold: 0.8, observed_orange_threshold: 0.65, orange_duration_seconds: 300, forecast_yellow_threshold: 0.65 }
-  if (path.pathname === '/api/models') return [{ model_id: 'QA离线基线', version: 'test', model_type: 'baseline', input_window: 2, horizon_seconds: 60 }]
-  if (path.pathname === '/api/evidence') return { event_snapshot: event(), snapshot_as_of: session.as_of,
-    observation_fragments: [], condition_hints: [{ kind: 'suspected_calibration', text: 'UI验收：疑似标校提示。' }], missing_fields: [],
-    candidate_attribution: candidateAttribution() }
+  if (path.pathname === '/api/models') return path.searchParams.get('point_id') === wind.point_id ? [] : modelCatalog.map(m => ({ ...m, source_id: session.source_id, face_id: source.face_id }))
+  if (path.pathname === '/api/forecasts' && request.method === 'POST') return forecast(body.model_id, body.version)
+  if (path.pathname === '/api/forecasts') return forecastRuns.filter(run => run.session_id === path.searchParams.get('session_id')
+    && (!path.searchParams.has('point_id') || run.point_id === path.searchParams.get('point_id'))
+    && (!path.searchParams.has('model_id') || run.model_id === path.searchParams.get('model_id'))
+    && (!path.searchParams.has('version') || run.model_version === path.searchParams.get('version'))).slice(0, Number(path.searchParams.get('limit') || 20))
+  if (/^\/api\/forecasts\/qa-forecast-\d+$/.test(path.pathname)) return forecastRuns.find(run => path.pathname.endsWith(run.run_id))
+  if (path.pathname === '/api/evidence') {
+    const packet = { event_snapshot: event(), snapshot_as_of: session.as_of,
+      observation_fragments: [], condition_hints: [{ kind: 'suspected_calibration', text: 'UI验收：疑似标校提示。' }], missing_fields: [],
+      candidate_attribution: candidateAttribution() }
+    const gate = nextEvidenceGate; nextEvidenceGate = null
+    if (gate) await gate
+    return packet
+  }
   if (path.pathname === '/api/cases/qa-event') return casePacket()
   if (path.pathname === '/api/cases/qa-event/actions') {
     actions.push({ ...body, action_id: `qa-action-${actions.length}`, actor_id: 'qa-user', occurred_at: new Date().toISOString(), data_as_of: session.as_of })
@@ -128,6 +174,7 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
       await t.test(`${userRole}: login, scoped data, chart and operation permissions`, async () => {
         reset(userRole)
         const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } })
+        try {
         const page = await context.newPage()
         page.setDefaultTimeout(6000)
         const failures = []; page.on('pageerror', error => failures.push(error.message))
@@ -137,14 +184,32 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
         await page.locator('[name="username"]').fill('qa-only-user')
         await page.locator('[name="password"]').fill('qa-only-password-for-test')
         await page.getByRole('button', { name: /^登录工作台/ }).click()
-        await page.getByText('TEST-UI 工作面', { exact: true }).waitFor()
+        await page.getByRole('heading', { name: 'TEST-UI 工作面', exact: true }).waitFor()
         await page.getByRole('button', { name: '创建会话', exact: true }).click()
-        await page.locator('.metric-card strong').first().filter({ hasText: '0.910' }).waitFor()
+        assert.equal(await page.getByRole('region', { name: '综合态势', exact: true }).count(), 1, '正式工作台采用综合态势布局')
+        assert.equal(await page.getByRole('combobox', { name: '预测模型', exact: true }).count(), 1, '预测模型可选择')
+        assert.equal(await page.getByRole('region', { name: '监测曲线', exact: true }).count(), 1, '曲线提供独立的可访问区域')
+        const overview = page.getByRole('region', { name: '综合态势', exact: true })
+        const curve = page.getByRole('region', { name: '监测曲线', exact: true })
+        await overview.getByText('0.910', { exact: true }).first().waitFor()
         assert.ok(calls.filter(call => call.path === '/api/observations').every(call => call.query.end_at === session.as_of))
+        assert.equal(await overview.getByText('9.990', { exact: true }).count(), 0, '未来读数不出现在通道卡片')
         assert.equal(await page.getByRole('button', { name: '批准建议', exact: true }).count(), 0)
         assert.equal(calls.some(call => call.path === '/api/evaluations'), userRole === 'safety_management')
+        await page.getByRole('combobox', { name: '预测模型', exact: true }).selectOption('QA专业预测:trained-test-v1')
+        await page.getByRole('button', { name: '运行预测', exact: true }).click()
+        await curve.getByText('trained-test-v1', { exact: true }).first().waitFor()
+        const forecastTable = curve.locator('details').filter({ has: page.locator('summary', { hasText: '预测区间数据' }) })
+        await forecastTable.locator('summary').click()
+        await forecastTable.getByRole('cell', { name: '0.550', exact: true }).waitFor()
+        await forecastTable.getByRole('cell', { name: '0.660', exact: true }).waitFor()
+        assert.equal(await forecastTable.locator('tbody tr').count(), 12)
+        const submittedForecast = calls.findLast(call => call.path === '/api/forecasts' && call.method === 'POST')
+        assert.deepEqual(submittedForecast.body, { session_id: session.session_id, point_id: point.point_id, model_id: 'QA专业预测', version: 'trained-test-v1' })
+        await forecastTable.locator('summary').click()
         await page.getByRole('button', { name: /实测超限/ }).click()
-        await page.getByPlaceholder('填写人工核实、执行、反馈或复核记录').waitFor()
+        await curve.getByText('trained-test-v1', { exact: true }).first().waitFor()
+        assert.equal(calls.findLast(call => call.path === '/api/evidence').query.event_revision, '1', '依据查询绑定事件修订')
         const attributionCard = page.getByRole('region', { name: '溯源结果', exact: true })
         await attributionCard.getByText('已完成', { exact: true }).waitFor()
         const attributionText = await attributionCard.innerText()
@@ -161,7 +226,7 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
           await attributionCard.getByText('待补充', { exact: true }).waitFor()
           await attributionCard.getByText('补齐六路测点映射', { exact: true }).waitFor()
           await attributionCard.getByText('补齐61个连续分钟时刻的六路数据', { exact: true }).waitFor()
-          await attributionCard.getByText('开启事件溯源', { exact: true }).waitFor()
+          await attributionCard.getByText('当前模型未启用事件溯源。', { exact: true }).waitFor()
           assert.equal(await attributionCard.getByText(/割煤速度快|six_channel_point_bindings/).count(), 0)
           attributionState = 'failed'
           await page.getByRole('button', { name: /实测超限/ }).click()
@@ -172,6 +237,8 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
           await attributionCard.getByText('已完成', { exact: true }).waitFor()
           assert.equal(await attributionCard.locator('summary', { hasText: '类别概率' }).count(), 0)
         }
+        await page.getByRole('button', { name: '打开人工处置', exact: true }).click()
+        await page.getByPlaceholder('填写人工核实、执行、反馈或复核记录').waitFor()
         assert.equal(await page.getByRole('button', { name: '批准建议', exact: true }).count(), userRole === 'safety_management' ? 1 : 0)
         if (userRole === 'safety_management') {
           await page.clock.runFor(15000)
@@ -221,7 +288,7 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
           await page.getByText('离线基线', { exact: true }).waitFor()
           await page.getByRole('button', { name: /监测与预警/ }).click()
           await page.clock.runFor(100)
-          const chartBounds = await page.locator('.chart').evaluate(element => ({ parent: element.clientWidth, canvas: element.querySelector('canvas')?.clientWidth }))
+          const chartBounds = await page.getByRole('img', { name: '当前测点实测与预测曲线', exact: true }).evaluate(element => ({ parent: element.clientWidth, canvas: element.querySelector('canvas')?.clientWidth }))
           assert.ok(chartBounds.canvas > chartBounds.parent * 0.9, '曲线画布覆盖可用宽度')
           await mkdir(artifactDir, { recursive: true })
           await attributionCard.screenshot({ path: resolve(artifactDir, 'ui-attribution-test-fixture.png') })
@@ -241,8 +308,53 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
           await page.screenshot({ path: resolve(artifactDir, 'ui-mobile-test-fixture.png') })
         }
         assert.deepEqual(failures, [], '浏览器无运行时异常')
-        await context.close()
+        } finally { await context.close() }
       })
     }
+    await t.test('forecast restore, non-methane point and stale evidence stay scoped', async () => {
+      reset('safety_management')
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+      let releaseEvidence = () => {}
+      try {
+        const page = await context.newPage()
+        page.setDefaultTimeout(6000)
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user')
+        await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.getByRole('heading', { name: 'TEST-UI 工作面', exact: true }).waitFor()
+        await page.getByRole('button', { name: '创建会话', exact: true }).click()
+        const curve = page.getByRole('region', { name: '监测曲线', exact: true })
+        await page.getByRole('combobox', { name: '预测模型', exact: true }).selectOption('QA专业预测:trained-test-v1')
+        await page.getByRole('button', { name: '运行预测', exact: true }).click()
+        await curve.getByText('trained-test-v1', { exact: true }).first().waitFor()
+        const originalSession = session.session_id
+        const runCount = calls.filter(call => call.path === '/api/forecasts' && call.method === 'POST').length
+        nextEvidenceGate = new Promise(resolveGate => { releaseEvidence = resolveGate })
+        await Promise.all([
+          page.waitForRequest(request => request.url().includes('/api/evidence?')),
+          page.getByRole('button', { name: /实测超限/ }).click(),
+        ])
+        await page.getByRole('combobox', { name: '监测点', exact: true }).selectOption(wind.point_id)
+        releaseEvidence()
+        await page.getByRole('heading', { name: '工况趋势', exact: true }).waitFor()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        assert.equal(await page.getByRole('region', { name: '溯源结果', exact: true }).count(), 0, '旧事件响应不回写新测点')
+        assert.equal(await page.getByRole('button', { name: '运行预测', exact: true }).isDisabled(), true)
+        assert.equal(await curve.getByText('trained-test-v1', { exact: true }).count(), 0)
+        assert.equal(calls.filter(call => call.path === '/api/rules' && call.query.point_id === wind.point_id).length, 0)
+        assert.equal(calls.filter(call => call.path === '/api/forecasts' && call.body?.point_id === wind.point_id).length, 0)
+        await page.getByRole('combobox', { name: '数据源', exact: true }).selectOption(otherSource.source_id)
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        assert.equal(await page.getByRole('button', { name: '运行预测', exact: true }).isDisabled(), true, '切来源先清空会话')
+        await page.getByRole('combobox', { name: '已有会话', exact: true }).selectOption(originalSession)
+        await page.getByRole('button', { name: '运行预测', exact: true }).waitFor({ state: 'visible' })
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        await page.getByRole('combobox', { name: '预测模型', exact: true }).selectOption('QA专业预测:trained-test-v1')
+        await curve.getByText('trained-test-v1', { exact: true }).first().waitFor()
+        assert.equal(calls.filter(call => call.path === '/api/forecasts' && call.method === 'POST').length, runCount, '恢复已有结果无需再次运行')
+        assert.equal(await page.getByRole('combobox', { name: '数据源', exact: true }).inputValue(), source.source_id)
+      } finally { releaseEvidence(); await context.close() }
+    })
   } finally { await browser.close(); await new Promise(resolveClose => server.close(resolveClose)) }
 })

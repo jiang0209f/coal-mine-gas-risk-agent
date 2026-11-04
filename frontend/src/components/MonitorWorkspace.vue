@@ -1,0 +1,230 @@
+<script setup>
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+import { mineTime, seriesToPoints } from '../utils.mjs'
+
+echarts.use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, CanvasRenderer])
+const props = defineProps({
+  session: Object, source: Object, pointId: String, selectedModel: String, forecast: Object,
+  selectedEvent: Object, evidence: Object, caseResult: Object, window: Object,
+  points: { type: Array, default: () => [] }, series: { type: Object, default: () => ({ rows: [] }) },
+  events: { type: Array, default: () => [] }, rules: Object,
+  models: { type: Array, default: () => [] }, pointReadings: { type: Object, default: () => ({}) },
+  busy: [String, Boolean], eventLoading: Boolean, forecastLoading: Boolean, forecastError: String,
+})
+const emit = defineEmits(['select-point', 'select-event', 'select-model', 'run-forecast', 'clear-event', 'open-case', 'refresh'])
+const investigationTab = ref('analysis')
+const chartEl = ref(null)
+let chart, resizeObserver
+const levels = { red: '红色', orange: '橙色', yellow: '黄色', blue: '蓝色' }
+const phases = { new: '待确认', confirmed: '已确认', advice_reviewed: '建议已审核', executed: '已执行', feedback_submitted: '待复核', reviewed: '已复核' }
+const qualityNames = { invalid: '无效值', invalid_value: '无效值', missing: '缺测', duplicate_timestamp: '重复时间', suspected_calibration: '疑似标校', planned_calibration: '计划标校', confirmed_calibration: '已确认标校', forward_filled: '过去值填补', delayed: '延迟' }
+const needs = {
+  observed_event_required: '该事件为预测预警，当前展示预测与规则依据。',
+  observed_target_at_model_threshold: '目标时段尚未达到溯源分析阈值。',
+  automatic_attribution_enabled: '当前模型未启用事件溯源。',
+  trained_model_for_source: '当前来源尚未登记溯源模型。',
+  target_point_binding: '当前测点尚未绑定溯源模型。',
+  six_channel_point_bindings: '补齐六路测点映射',
+  confirmed_processed_feature_points: '确认六路特征测点映射',
+  aligned_six_channel_minute_history: '补齐六路同步分钟数据',
+  valid_unique_minute_features: '补齐有效的分钟特征数据',
+  complete_61_minute_six_channel_history: '补齐61个连续分钟时刻的六路数据',
+  complete_six_channel_history: '补齐完整六路历史数据',
+  training_cutoff_not_after_as_of: '选择训练期后的监测时段',
+  model_python: '配置溯源模型运行环境', classifier: '补齐模型文件', training_metadata: '补齐模型登记信息',
+}
+const point = computed(() => props.points.find(item => item.point_id === props.pointId))
+const unit = computed(() => unitLabel(props.series?.unit || point.value?.unit))
+const isMethane = computed(() => point.value?.quantity === 'methane' || (!point.value?.quantity && /CH4|%/.test(point.value?.unit || '')))
+const chartPoints = computed(() => props.session ? seriesToPoints(props.series, props.session.as_of) : [])
+const latest = computed(() => chartPoints.value.filter(item => item[1] !== null).at(-1))
+const currentModel = computed(() => props.models.find(item => modelKey(item) === props.selectedModel))
+const physicalOutput = computed(() => {
+  const outputs = props.forecast?.status === 'completed' ? props.forecast.outputs || [] : []
+  return outputs.find(item => item.quantity_semantics === 'physical_forecast' && item.prediction_stage === 'residual_corrected')
+    || outputs.find(item => item.quantity_semantics === 'physical_forecast' && item.prediction_stage === 'baseline_persistence')
+    || outputs.find(item => item.quantity_semantics === 'physical_forecast')
+})
+const intervals = computed(() => (physicalOutput.value?.interval_values || []).filter(item => Number.isFinite(item.value) && Number.isFinite(Date.parse(item.start_at)) && Number.isFinite(Date.parse(item.end_at))))
+const forecastMaximum = computed(() => intervals.value.length ? Math.max(...intervals.value.map(item => item.value)) : null)
+const attribution = computed(() => !props.eventLoading ? props.evidence?.candidate_attribution : null)
+const modelStatus = computed(() => props.forecastLoading ? '计算中' : ({ completed: '已完成', not_ready: '待补充', failed: '未完成' }[props.forecast?.status] || (isMethane.value ? '待运行' : '工况监测')))
+const attributionStatus = computed(() => props.eventLoading ? '读取中' : ({ completed: '已完成', not_ready: '待补充', failed: '未完成' }[attribution.value?.status] || '待选事件'))
+const validCount = computed(() => chartPoints.value.filter(item => item[1] !== null).length)
+const missingCount = computed(() => chartPoints.value.filter(item => item[1] === null).length)
+const qualityFlags = computed(() => [...new Set((props.series?.rows || []).flatMap(row => row.quality_flags || []))].filter(flag => qualityNames[flag]))
+const selectedSnapshot = computed(() => props.evidence?.event_snapshot || props.selectedEvent)
+const fragments = computed(() => props.evidence?.observation_fragments || [])
+const inputChannels = computed(() => [...new Set((attribution.value?.input_refs || []).map(item => item.point_id).filter(Boolean))].length)
+const forecastRange = computed(() => intervals.value.length ? `${mineTime(intervals.value[0].start_at, false)} — ${mineTime(intervals.value.at(-1).end_at, false)}` : '—')
+const activeEvents = computed(() => props.events.filter(item => item.event_state !== 'ended'))
+const activeLevel = computed(() => ['red', 'orange', 'yellow', 'blue'].find(level => activeEvents.value.some(item => item.alert_level === level)))
+const snapshotRevision = computed(() => selectedSnapshot.value?.event_revision)
+const forecastNeeds = { model_id: '当前测点尚无可用预测模型', valid_closed_input_window: '完整历史窗口待补齐', confirmed_mapping: '测点映射待确认', allowed_lineage: '数据来源待确认', confirmed_allowed_input_points: '特征测点待确认', valid_unique_minute_features: '有效分钟数据待补齐', aligned_six_channel_minute_history: '六路同步历史数据待补齐', complete_450_minute_six_channel_history: '六路预测历史窗口待补齐', training_cutoff_not_after_as_of: '请选择训练期后的监测时段' }
+function unitLabel(value) { return value === 'source_native' ? '原始单位' : value || '—' }
+function modelKey(model) { return `${model.model_id}:${model.version}` }
+function number(value) { return Number.isFinite(value) ? value.toFixed(Math.abs(value) >= 1000 ? 0 : 3) : '—' }
+function modelName(model) { return model?.name || model?.model_id || '未选择模型' }
+function modelOption(model) { return `${modelName(model)} · ${model.version} · ${model.model_type === 'baseline' ? '基线' : '专业'}${model.default_eligible ? ' / 默认' : ''}${model.deployment_stage === 'experimental' ? ' / 实验' : ''}` }
+function eventName(event) { return event.event_type === 'forecast_exceedance' ? '预测预警' : '实测超限' }
+function pointName(item) { return item.name || item.source_tag || item.point_id }
+function reading(item) { return props.pointReadings[item.point_id] || (item.point_id === props.pointId && latest.value ? { value: latest.value[1], event_time: latest.value[0] } : null) }
+function visibleQuality(flag) { return qualityNames[flag] || flag }
+function renderChart() {
+  if (!chartEl.value) return
+  if (!chart) {
+    chart = echarts.init(chartEl.value)
+    resizeObserver = new ResizeObserver(() => chart?.resize())
+    resizeObserver.observe(chartEl.value)
+  }
+  const asOf = props.session ? Date.parse(props.session.as_of) : null
+  const windowStart = Date.parse(props.window?.start_at)
+  const windowEnd = Date.parse(props.window?.end_at)
+  const endTimes = intervals.value.map(item => Date.parse(item.end_at))
+  const xMin = Number.isFinite(windowStart) ? windowStart : asOf ? asOf - 3600000 : undefined
+  const xMax = Number.isFinite(windowEnd) ? Math.max(windowEnd, ...endTimes) : asOf ? Math.max(asOf, ...endTimes) : undefined
+  const marks = isMethane.value && props.rules ? [
+    { name: '实测红色', yAxis: props.rules.observed_red_threshold, lineStyle: { color: '#fa8b98' }, label: { position: 'insideEndTop', color: '#fa8b98' } },
+    { name: '实测橙色', yAxis: props.rules.observed_orange_threshold, lineStyle: { color: '#e6b978' }, label: { position: 'insideEndBottom', color: '#e6b978' } },
+  ].filter(item => Number.isFinite(item.yAxis)) : []
+  const forecastData = intervals.value.flatMap(item => [[Date.parse(item.start_at), item.value], [Date.parse(item.end_at), item.value]])
+  chart.setOption({ animation: false, textStyle: { fontFamily: 'Microsoft YaHei UI, Microsoft YaHei, sans-serif', fontSize: 12 },
+    grid: { left: 50, right: 18, top: 30, bottom: 32 },
+    tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, backgroundColor: '#102a41', borderColor: '#31546e', textStyle: { color: '#d7e7f5', fontSize: 12 },
+      formatter: entries => `${mineTime(entries[0]?.value?.[0])}\n${entries.map(item => `${item.seriesName}：${number(item.value?.[1])} ${unit.value}`).join('\n')}` },
+    xAxis: { type: 'time', min: xMin, max: xMax, axisLine: { lineStyle: { color: '#36516b' } }, splitLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#91abc2', fontSize: 12, hideOverlap: true, formatter: value => mineTime(value).slice(11, 16) } },
+    yAxis: { type: 'value', min: 0, axisLabel: { color: '#91abc2', fontSize: 12 }, splitLine: { lineStyle: { color: '#1e3850', type: 'dashed' } } },
+    series: [
+      { name: '实测', type: 'line', data: chartPoints.value, connectNulls: false, showSymbol: validCount.value < 2, symbolSize: 5, lineStyle: { width: 2, color: '#58c8df' }, itemStyle: { color: '#58c8df' },
+        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#58c8df25' }, { offset: 1, color: '#58c8df00' }]) },
+        markLine: { silent: true, symbol: 'none', label: { fontSize: 12, formatter: '{b}', position: 'insideEndTop', backgroundColor: '#0d2135d9', padding: [2, 4], textBorderWidth: 0, textShadowBlur: 0, color: '#a8c9db' }, lineStyle: { type: 'dashed', width: 1 }, data: marks },
+        markArea: props.selectedEvent && selectedSnapshot.value?.start_at ? { silent: true, itemStyle: { color: '#e6b97810' }, data: [[{ xAxis: Date.parse(selectedSnapshot.value.start_at) }, { xAxis: selectedSnapshot.value.end_at ? Date.parse(selectedSnapshot.value.end_at) : Math.max(Date.parse(selectedSnapshot.value.start_at), asOf) }]] } : undefined,
+      },
+      { name: '预测', type: 'line', data: forecastData, showSymbol: false, lineStyle: { width: 2, color: '#e6b978', type: 'dashed' }, itemStyle: { color: '#e6b978' } },
+    ],
+  }, true)
+}
+watch([chartPoints, intervals, () => props.rules, () => props.window, () => props.selectedEvent, chartEl], () => nextTick(renderChart))
+watch(() => props.selectedEvent?.event_id, () => { investigationTab.value = 'analysis' })
+onBeforeUnmount(() => { resizeObserver?.disconnect(); chart?.dispose() })
+</script>
+
+<template>
+  <section class="monitor-workspace" aria-label="综合态势">
+    <div class="monitor-summary">
+      <article class="summary-card current-reading"><span>{{ point?.name || '当前测点' }}</span><div><strong>{{ number(latest?.[1]) }}</strong><small>{{ unit }}</small></div><p>{{ latest ? mineTime(latest[0]) : '等待监测数据' }}</p></article>
+      <article class="summary-card"><span>当前可见事件 <i v-if="activeLevel" :class="['event-dot', activeLevel]"></i></span><div><strong>{{ session ? events.length : '—' }}</strong><small>条</small></div><p>{{ activeLevel ? `${levels[activeLevel]}预警 · ${activeEvents.length}条未结束` : '当前时间范围' }}</p></article>
+      <article class="summary-card"><span>预测运行</span><div><strong class="status-number">{{ modelStatus }}</strong><small v-if="forecastMaximum !== null">峰值 {{ number(forecastMaximum) }}</small></div><p>{{ forecast?.model_id || currentModel?.model_id || (isMethane ? '选择模型后运行' : '当前为工况测点') }}</p></article>
+      <article class="summary-card"><span>事件溯源</span><div><strong class="status-number">{{ attributionStatus }}</strong><small v-if="snapshotRevision">第 {{ snapshotRevision }} 版</small></div><p>{{ selectedEvent ? `${eventName(selectedEvent)} · ${levels[selectedEvent.alert_level] || ''}` : '选择事件查看研判结果' }}</p></article>
+    </div>
+
+    <div class="monitor-stage">
+      <section class="monitor-panel point-panel" aria-label="监测点位">
+        <header class="monitor-panel-head"><h2>监测点位</h2><span>{{ points.length }} 路</span></header>
+        <div class="monitor-point-list">
+          <button v-for="item in points" :key="item.point_id" :class="['monitor-point', { active: pointId === item.point_id }]" :aria-label="`选择测点 ${pointName(item)}`" :aria-pressed="pointId === item.point_id" :disabled="!!busy" @click="emit('select-point', item.point_id)">
+            <span class="point-signal">{{ item.quantity === 'methane' || item.quantity === 'shearer_methane' ? 'CH₄' : item.quantity === 'wind_speed' ? '风' : item.quantity?.includes('current') ? '电' : '·' }}</span>
+            <span class="point-copy"><strong>{{ pointName(item) }}</strong><small>{{ item.point_id }}</small></span>
+            <span class="point-measure"><b>{{ number(reading(item)?.value) }}</b><small>{{ unitLabel(reading(item)?.unit || item.unit) }}</small></span>
+          </button>
+          <p v-if="!points.length" class="monitor-empty">选择数据源后显示测点。</p>
+        </div>
+        <footer class="monitor-panel-foot"><span>当前来源</span><span>{{ source?.face_id || '—' }} 工作面</span></footer>
+      </section>
+
+      <section class="monitor-panel channels-panel" aria-label="通道监测">
+        <header class="monitor-panel-head"><div><h2>工作面监测</h2><span class="monitor-caption">{{ source?.name || source?.source_id || '尚未选择数据源' }}</span></div><span class="monitor-chip">{{ session ? ({ historical_replay: '历史回放', simulated_stream: '模拟数据流', realtime: '现场接入' }[session.mode] || '会话已关联') : '待创建会话' }}</span></header>
+        <div class="channel-grid">
+          <button v-for="item in points" :key="item.point_id" :class="['channel-card', { selected: item.point_id === pointId }]" :disabled="!!busy" :aria-label="`查看通道 ${pointName(item)}`" @click="emit('select-point', item.point_id)">
+            <span class="channel-heading"><i :class="{ selected: item.point_id === pointId }"></i>{{ pointName(item) }}</span>
+            <strong>{{ number(reading(item)?.value) }}<small>{{ unitLabel(reading(item)?.unit || item.unit) }}</small></strong>
+            <span class="channel-time">{{ reading(item)?.event_time ? mineTime(reading(item).event_time, false).slice(11) : '当前窗口缺测' }}</span>
+          </button>
+          <div v-if="!points.length" class="monitor-empty">监测通道等待加载</div>
+        </div>
+        <footer class="monitor-panel-foot"><span>数据时间</span><span>{{ session ? mineTime(session.as_of) : '—' }}</span></footer>
+      </section>
+
+      <section class="monitor-panel quality-panel" aria-label="数据质量">
+        <header class="monitor-panel-head"><h2>数据质量</h2><span>当前窗口</span></header>
+        <div class="quality-content">
+          <div class="quality-counts"><div><strong>{{ validCount }}</strong><span>有效记录</span></div><div><strong :class="{ 'warning-text': missingCount }">{{ missingCount }}</strong><span>空值记录</span></div></div>
+          <dl class="quality-facts"><div><dt>点位映射</dt><dd>{{ point?.mapping_status === 'confirmed' ? '已确认' : '待核对' }}</dd></div><div><dt>计量单位</dt><dd>{{ point?.unit === 'source_native' ? '单位待核对' : point?.unit_status === 'inferred' ? '资料推定' : unit }}</dd></div><div><dt>数据来源</dt><dd>{{ { processed: '加工历史', raw: '原始监测', unknown: '待核实' }[point?.lineage] || '待核实' }}</dd></div></dl>
+          <p v-if="window?.start_at && window?.end_at" class="quality-note">{{ mineTime(window.start_at, false) }} — {{ mineTime(window.end_at, false) }}</p>
+          <div v-if="qualityFlags.length" class="monitor-flags"><span v-for="flag in qualityFlags" :key="flag" class="monitor-chip warning">{{ visibleQuality(flag) }}</span></div>
+          <p v-else class="quality-note">{{ session ? '窗口内未检出已登记的质量疑点' : '会话创建后检查当前窗口' }}</p>
+        </div>
+      </section>
+
+      <section class="monitor-panel trend-panel" aria-label="监测曲线">
+        <header class="monitor-panel-head"><div><h2>{{ isMethane ? '瓦斯浓度变化' : '工况趋势' }}</h2><span class="monitor-caption">{{ point?.name || pointId || '未选择测点' }} · {{ unit }}</span></div><button class="monitor-text-button" :disabled="!selectedEvent || !!busy" @click="emit('clear-event')">{{ selectedEvent ? '返回当前窗口' : '当前窗口' }}</button></header>
+        <div class="forecast-toolbar">
+          <label>预测模型<select :value="selectedModel || ''" aria-label="预测模型" :disabled="!session || !isMethane || !!busy || forecastLoading" @change="emit('select-model', $event.target.value)"><option value="" disabled>{{ isMethane ? '选择预测模型' : '当前测点为工况监测' }}</option><option v-for="model in models" :key="modelKey(model)" :value="modelKey(model)">{{ modelOption(model) }}</option></select></label>
+          <button class="monitor-button primary" :disabled="!session || !isMethane || !selectedModel || !!busy || forecastLoading" @click="emit('run-forecast')">{{ forecastLoading ? '预测计算中' : '运行预测' }}</button>
+        </div>
+        <div class="monitor-chart-wrap"><div ref="chartEl" class="monitor-chart" role="img" aria-label="当前测点实测与预测曲线"></div><p v-if="!chartPoints.length && !intervals.length" class="monitor-chart-empty">{{ session ? '当前窗口暂无监测记录' : '创建会话后显示监测曲线' }}</p></div>
+        <p v-if="forecastError" class="forecast-message warning-text">{{ forecastError }}</p>
+        <p v-else-if="forecast?.status === 'not_ready'" class="forecast-message warning-text">{{ (forecast.missing_fields || []).map(field => forecastNeeds[field] || '预测输入待补齐').join('、') || '预测输入待补齐' }}</p>
+        <p v-else-if="forecast?.status === 'failed'" class="forecast-message warning-text">本次预测未完成，可重新运行。</p>
+        <footer class="monitor-panel-foot chart-legend"><span><i class="legend-line"></i>实测 <i class="legend-line forecast-line"></i>预测</span><span v-if="forecast?.status === 'completed'">{{ forecast.model_version }}</span><span v-else>{{ rules?.status === 'team-draft' && isMethane ? '规则：团队草案' : '' }}</span>
+          <details v-if="intervals.length" class="forecast-details"><summary>预测区间数据</summary><div class="forecast-data-popover"><h3>预测区间数据</h3><p>{{ forecast.model_id }} · {{ forecast.model_version }} · 已完成</p><p>输入截止 {{ mineTime(forecast.cutoff) }}</p><p>预测范围 {{ forecastRange }}</p><table aria-label="预测区间数据"><thead><tr><th>开始时间</th><th>结束时间</th><th>预测值</th><th>单位</th></tr></thead><tbody><tr v-for="item in intervals" :key="item.start_at"><td>{{ mineTime(item.start_at) }}</td><td>{{ mineTime(item.end_at) }}</td><td>{{ number(item.value) }}</td><td>{{ unitLabel(physicalOutput.unit) }}</td></tr></tbody></table></div></details>
+        </footer>
+      </section>
+
+      <section class="monitor-panel investigation-panel" aria-label="事件研判">
+        <header class="monitor-panel-head"><h2>智能研判</h2><span :class="['monitor-chip', selectedEvent?.alert_level]">{{ selectedEvent ? `${levels[selectedEvent.alert_level] || ''}事件` : '待选事件' }}</span></header>
+        <div class="investigation-tabs" role="tablist" aria-label="事件研判内容"><button v-for="item in [{ id: 'analysis', label: '研判结论' }, { id: 'evidence', label: '原始依据' }, { id: 'case', label: '人工处置' }]" :key="item.id" role="tab" :aria-selected="investigationTab === item.id" :class="{ active: investigationTab === item.id }" @click="investigationTab = item.id">{{ item.label }}</button></div>
+        <div v-if="eventLoading" class="investigation-body monitor-empty" role="status">正在读取事件依据与溯源结果…</div>
+        <div v-else-if="!selectedEvent" class="investigation-body investigation-welcome"><div class="investigation-symbol">◈</div><h3>选择事件查看研判</h3><p>候选原因、原始监测和处置记录随事件关联。</p><dl><div><dt>监测来源</dt><dd>{{ source?.face_id || '—' }} 工作面</dd></div><div><dt>可见事件</dt><dd>{{ events.length }} 条</dd></div></dl><button class="monitor-button" :disabled="!session || !!busy" @click="emit('refresh')">刷新监测</button></div>
+        <div v-else class="investigation-body">
+          <div class="selected-event-heading"><span :class="['monitor-chip', selectedEvent.alert_level]">{{ levels[selectedEvent.alert_level] }} · {{ eventName(selectedEvent) }}</span><strong>{{ selectedEvent.point_id }}</strong><p>{{ mineTime(selectedSnapshot?.start_at) }} <span v-if="snapshotRevision">· 第 {{ snapshotRevision }} 版</span></p></div>
+          <template v-if="investigationTab === 'analysis'">
+            <section class="attribution-result" aria-label="溯源结果"><div class="result-title"><h3>溯源结果</h3><span :class="['monitor-chip', attribution?.status === 'completed' ? 'success' : 'warning']">{{ { completed: '已完成', not_ready: '待补充', failed: '分析未完成' }[attribution?.status] || '待分析' }}</span></div>
+              <template v-if="attribution?.status === 'completed'"><p class="cause-label">候选原因</p><ul class="candidate-causes"><li v-for="cause in attribution.candidate_causes || []" :key="cause"><span></span>{{ cause }}</li></ul><dl class="result-facts"><div><dt>模型版本</dt><dd>{{ attribution.model_id }}<br>{{ attribution.model_version || attribution.version }}</dd></div><div><dt>目标时间</dt><dd>{{ mineTime(attribution.target_time) }}</dd></div><div><dt>输入截止</dt><dd>{{ mineTime(attribution.input_as_of) }}</dd></div><div><dt>模型提前量</dt><dd>{{ attribution.horizon_seconds }} 秒</dd></div><div v-if="inputChannels"><dt>输入依据</dt><dd>{{ inputChannels }} 通道 · {{ attribution.input_refs?.length }} 条</dd></div></dl><details v-if="attribution.cluster_probabilities?.length" class="probability-details"><summary>类别概率</summary><table><thead><tr><th>类别</th><th>概率</th></tr></thead><tbody><tr v-for="item in attribution.cluster_probabilities" :key="item.cluster_id"><td>类别 {{ item.cluster_id }}</td><td>{{ (item.probability * 100).toFixed(1) }}%</td></tr></tbody></table></details></template>
+              <template v-else-if="attribution?.status === 'not_ready'"><p v-for="need in attribution.missing_fields || []" :key="need" class="result-message">{{ needs[need] || '补齐溯源分析所需资料' }}</p></template><p v-else class="result-message">{{ attribution?.status === 'failed' ? '本次溯源分析未完成。' : '等待事件溯源分析。' }}</p>
+            </section>
+            <div v-if="forecast?.status === 'completed'" class="investigation-section"><h3>关联预测</h3><p>{{ forecast.model_id }}</p><small>{{ forecastRange }}</small><dl class="result-facts"><div><dt>区间最高值</dt><dd>{{ number(forecastMaximum) }} {{ unit }}</dd></div><div><dt>模型版本</dt><dd>{{ forecast.model_version }}</dd></div></dl></div>
+          </template>
+          <template v-else-if="investigationTab === 'evidence'">
+            <div class="evidence-summary"><div><strong>{{ fragments.length }}</strong><span>实测依据</span></div><div><strong>{{ evidence?.forecast_run ? 1 : 0 }}</strong><span>预测运行</span></div><div><strong>{{ snapshotRevision || '—' }}</strong><span>事件修订</span></div></div>
+            <dl class="result-facts"><div><dt>依据时点</dt><dd>{{ mineTime(evidence?.snapshot_as_of) }}</dd></div><div><dt>规则版本</dt><dd>{{ evidence?.rules?.rule_version || selectedSnapshot?.rule_version || '—' }}</dd></div><div><dt>规则状态</dt><dd>{{ evidence?.rules?.status === 'team-draft' ? '团队草案' : evidence?.rules?.status || '—' }}</dd></div></dl>
+            <p v-for="hint in evidence?.condition_hints || []" :key="hint.kind" class="result-message">{{ hint.text }}</p>
+            <div class="evidence-table-wrap"><table class="evidence-fragments"><thead><tr><th>观测时间</th><th>原始值</th><th>有效值</th></tr></thead><tbody><tr v-for="row in fragments" :key="row.id"><td>{{ mineTime(row.event_time) }}</td><td>{{ row.raw_value ?? '—' }}</td><td>{{ row.value ?? '缺测' }}</td></tr></tbody></table></div>
+            <p v-if="!fragments.length" class="result-message">当前事件没有关联的实测片段。</p>
+          </template>
+          <template v-else>
+            <div class="case-current"><span>当前处置阶段</span><strong>{{ phases[caseResult?.case?.phase || 'new'] }}</strong></div><p class="result-message">{{ session?.mode === 'realtime' ? '现场处置记录' : '演练处置记录' }}</p><ol class="case-stage-list"><li v-for="item in ['确认事件', '审核建议', '记录执行', '提交反馈', '复核归档']" :key="item">{{ item }}</li></ol><p class="result-message">已登记 {{ caseResult?.actions?.length || 0 }} 条人工操作。</p>
+          </template>
+        </div>
+        <footer class="investigation-actions"><button class="monitor-button primary" :disabled="!selectedEvent || eventLoading || !!busy" @click="emit('open-case')">打开人工处置</button></footer>
+      </section>
+
+      <section class="monitor-panel events-panel" aria-label="预警事件记录">
+        <header class="monitor-panel-head"><div><h2>预警事件记录</h2><span class="monitor-caption">{{ events.length }} 条</span></div><button class="monitor-text-button" :disabled="!session || !!busy" @click="emit('refresh')">刷新监测</button></header>
+        <div class="event-table-wrap"><table class="monitor-event-table"><thead><tr><th>等级</th><th>事件类型</th><th>测点</th><th>开始时间</th><th>事件修订</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="event in events" :key="event.event_id" :class="{ selected: event.event_id === selectedEvent?.event_id }"><td><span :class="['monitor-chip', event.alert_level]">{{ levels[event.alert_level] || event.alert_level }}</span></td><td>{{ eventName(event) }}</td><td>{{ event.point_id }}</td><td>{{ mineTime(event.start_at) }}</td><td>第 {{ event.event_revision }} 版</td><td>{{ { new: '新事件', upgraded: '已升级', ended: '已结束' }[event.event_state] || '待确认' }}</td><td><button class="monitor-text-button" :aria-label="`${eventName(event)} ${event.point_id} 第${event.event_revision}版 查看研判`" :disabled="!!busy" @click="emit('select-event', event)">查看研判 ↗</button></td></tr></tbody></table><p v-if="!events.length" class="monitor-empty">{{ session ? '当前时点没有可见预警事件' : '会话创建后显示事件记录' }}</p></div>
+      </section>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.monitor-workspace{--m-bg:#081827;--m-surface:#0d2135;--m-border:#21394f;--m-subtle:#1a3045;--m-text:#e8f0f9;--m-body:#c1d0e2;--m-muted:#8da4bf;--m-accent:#58c8df;color:var(--m-text);display:grid;grid-template-rows:88px minmax(0,1fr);gap:12px;min-width:0;height:clamp(880px,calc(100dvh - 278px),1020px);font-size:14px;line-height:1.5}
+.monitor-summary{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:12px;min-width:0}.summary-card{border:1px solid #244159;border-radius:7px;background:linear-gradient(110deg,#112a42,#0e243a);padding:9px 16px;min-width:0;overflow:hidden}.summary-card>span{display:flex;align-items:center;gap:8px;font-size:12px;color:#9fb4ca;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.summary-card>div{display:flex;align-items:baseline;gap:8px;min-width:0;height:34px;line-height:1}.summary-card strong{font-size:30px;font-weight:500;line-height:34px;font-variant-numeric:tabular-nums}.summary-card strong.status-number{font-size:23px;white-space:nowrap}.summary-card small{color:var(--m-muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.summary-card p{font-size:12px;color:var(--m-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}.current-reading{background:linear-gradient(110deg,#14384b,#10263c);border-color:#2c586b}.current-reading strong{color:#87e0ee}
+.monitor-stage{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(340px,2.1fr) minmax(290px,1fr);grid-template-rows:minmax(290px,1fr) minmax(315px,1.02fr) 145px;grid-template-areas:"points channels investigation" "quality trend investigation" "events events events";gap:12px;min-width:0;min-height:0}.monitor-panel{display:flex;flex-direction:column;background:var(--m-surface);border:1px solid var(--m-border);border-radius:7px;overflow:hidden;min-width:0;min-height:0;box-shadow:0 2px 7px #020c1729}.point-panel{grid-area:points}.channels-panel{grid-area:channels}.quality-panel{grid-area:quality}.trend-panel{grid-area:trend}.investigation-panel{grid-area:investigation}.events-panel{grid-area:events}.monitor-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 14px;height:44px;flex:0 0 44px;border-bottom:1px solid var(--m-subtle);background:linear-gradient(90deg,#122a4166,transparent);min-width:0}.monitor-panel-head h2{font-size:15px;font-weight:500;white-space:nowrap;letter-spacing:.3px}.monitor-panel-head>div{display:flex;align-items:center;gap:10px;min-width:0}.monitor-panel-head>span,.monitor-caption{font-size:12px;color:var(--m-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.monitor-panel-head .monitor-caption{max-width:310px}.monitor-panel-foot{height:30px;flex:0 0 30px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 14px;border-top:1px solid var(--m-subtle);color:var(--m-muted);font-size:12px}.monitor-panel-foot>span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.monitor-empty{padding:22px 14px;color:var(--m-muted);font-size:13px;text-align:center}.monitor-chip{display:inline-flex;align-items:center;padding:1px 6px;border:1px solid #33506b;border-radius:4px;color:#aac0d5;background:#183249;font-size:12px;font-weight:400;white-space:nowrap;line-height:19px}.monitor-chip.red{color:#ffa3ad;background:#352331;border-color:#704050}.monitor-chip.orange,.monitor-chip.yellow,.monitor-chip.warning{color:#e4bc83;background:#332b24;border-color:#64513d}.monitor-chip.success{color:#8cd4c1;background:#193b3a;border-color:#2b5f5a}.monitor-chip.blue{color:#9dc7f2;background:#19334a}.warning-text{color:#e6b978}.monitor-button{border:1px solid #34546e;border-radius:4px;background:#153149;color:#c6d9ea;min-height:32px;padding:5px 11px;font-size:13px;white-space:nowrap}.monitor-button.primary{background:#1c708e;border-color:#2a91ad;color:#f4fcff;box-shadow:none}.monitor-button:hover:not(:disabled){filter:brightness(1.12)}.monitor-text-button{border:0;background:transparent;padding:3px 0;color:#7bcddd;font-size:12px;white-space:nowrap}.monitor-button:disabled,.monitor-text-button:disabled{opacity:.45}.event-dot{width:6px;height:6px;border-radius:50%;background:#9dc7f2}.event-dot.red{background:#fa8b98}.event-dot.orange,.event-dot.yellow{background:#e6b978}
+.monitor-point-list{flex:1;min-height:0;overflow:auto;padding:4px 7px}.monitor-point{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:8px 7px;min-height:50px;border:0;border-bottom:1px solid #1c344a;border-radius:4px;background:transparent;color:var(--m-body)}.monitor-point.active{background:#15384d;border-color:transparent;box-shadow:inset 2px 0 #57bfd2}.point-signal{display:flex;align-items:center;justify-content:center;width:29px;height:29px;flex:0 0 29px;border:1px solid #30536b;border-radius:5px;background:#132d44;color:#7ecbdb;font-size:12px}.point-copy{flex:1;min-width:0}.point-copy strong{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}.point-copy small{display:block;font-size:12px;color:#7f9ab4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}.point-measure{text-align:right;min-width:48px;max-width:95px}.point-measure b{display:block;color:#d4e7f5;font-size:16px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}.point-measure small{display:block;color:var(--m-muted);font-size:12px}.channel-grid{flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;padding:12px;background:radial-gradient(ellipse at 50% 20%,#173c5360,transparent 75%),linear-gradient(#10273b33 1px,transparent 1px),linear-gradient(90deg,#10273b33 1px,transparent 1px);background-size:auto,24px 24px,24px 24px}.channel-card{padding:9px 11px;background:linear-gradient(140deg,#122e45,#102539);border:1px solid #2b475f;border-radius:5px;color:var(--m-body);text-align:left;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:4px}.channel-card.selected{border-color:#58c8df;box-shadow:0 0 0 1px #58c8df18,inset 0 0 20px #58c8df0a;background:linear-gradient(140deg,#173f54,#112c40)}.channel-heading{font-size:12px;display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channel-heading i{width:5px;height:5px;flex:0 0 5px;border-radius:50%;background:#4b7290}.channel-heading i.selected{background:#76d4df;box-shadow:0 0 7px #58c8df66}.channel-card strong{font-size:24px;font-weight:500;line-height:1.2;font-variant-numeric:tabular-nums;color:#d2e7f4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.channel-card strong small{font-size:12px;color:var(--m-muted);margin-left:5px;font-weight:400}.channel-time{color:#819db7;font-size:12px}.quality-content{padding:14px;flex:1;min-height:0;overflow:auto}.quality-counts{display:grid;grid-template-columns:1fr 1fr;gap:12px;border-bottom:1px solid var(--m-subtle);padding-bottom:12px}.quality-counts>div{display:flex;align-items:baseline;gap:7px}.quality-counts strong{font-size:25px;font-weight:500;font-variant-numeric:tabular-nums;color:#c6e3ef}.quality-counts span{font-size:12px;color:var(--m-muted)}.quality-facts{margin:11px 0 0;display:grid;gap:7px;font-size:12px}.quality-facts>div{display:flex;justify-content:space-between;gap:10px}.quality-facts dt{color:var(--m-muted)}.quality-facts dd{margin:0;color:var(--m-body)}.quality-note{margin-top:12px;font-size:12px;color:var(--m-muted);line-height:1.7}.monitor-flags{display:flex;flex-wrap:wrap;gap:5px;margin-top:12px}
+.forecast-toolbar{display:flex;align-items:flex-end;gap:8px;padding:9px 12px 0;flex:0 0 auto}.forecast-toolbar label{display:flex;align-items:center;gap:8px;flex:1;min-width:0;color:var(--m-muted);font-size:12px;white-space:nowrap}.forecast-toolbar select{width:100%;min-width:0;max-width:420px;margin:0!important;padding:5px 7px;height:32px;font-size:12px;background:#102a41;color:#c7d9e9;border:1px solid #33516b;border-radius:4px}.monitor-chart-wrap{position:relative;flex:1;min-height:112px}.monitor-chart{height:100%;width:100%;min-height:112px}.monitor-chart-empty{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:8px;background:#0d2135de;color:var(--m-muted);font-size:12px;white-space:nowrap;max-width:90%}.chart-legend{flex-wrap:nowrap}.legend-line{display:inline-block;width:18px;height:2px;background:#58c8df;vertical-align:middle;margin:0 6px 0 0}.forecast-line{background:repeating-linear-gradient(90deg,#e6b978 0 4px,transparent 4px 7px);margin-left:15px}.forecast-message{font-size:12px;padding:3px 14px 6px;flex:0 0 auto}.investigation-tabs{display:flex;flex:0 0 38px;min-width:0;border-bottom:1px solid var(--m-subtle);padding:0 11px;gap:6px}.investigation-tabs button{flex:1;position:relative;border:0;background:transparent;color:#8ba4bd;font-size:13px;padding:7px 4px;border-radius:0;white-space:nowrap}.investigation-tabs button.active{color:#83dae9}.investigation-tabs button.active:after{content:"";position:absolute;height:2px;bottom:0;left:12px;right:12px;background:#58c8df}.investigation-body{flex:1;min-height:0;overflow:auto;padding:14px}.investigation-welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:13px}.investigation-symbol{font-size:41px;color:#4d8da7;font-weight:300;line-height:1}.investigation-welcome h3{font-size:15px;font-weight:500;color:#d5e7f4}.investigation-welcome>p{color:var(--m-muted);font-size:13px;line-height:1.8;max-width:220px}.investigation-welcome dl{display:grid;gap:10px;font-size:12px;width:100%;margin:10px 0}.investigation-welcome dl>div{display:flex;justify-content:space-between}.investigation-welcome dt{color:var(--m-muted)}.investigation-welcome dd{margin:0;color:#bccfdf}.selected-event-heading{padding-bottom:13px;margin-bottom:15px;border-bottom:1px solid var(--m-subtle)}.selected-event-heading strong{display:block;font-size:14px;font-weight:500;margin-top:9px;word-break:break-word}.selected-event-heading p{font-size:12px;color:var(--m-muted);margin-top:4px;line-height:1.8}.result-title{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:13px}.result-title h3,.investigation-section h3{font-size:14px;font-weight:500;color:#d5e7f4}.cause-label{font-size:12px;color:var(--m-muted);margin-bottom:8px}.candidate-causes{display:grid;gap:7px;list-style:none;padding:0;margin:0 0 16px}.candidate-causes li{display:flex;align-items:flex-start;gap:8px;line-height:1.6;font-size:14px;color:#cfe4ef;padding:6px 9px;background:#123044;border:1px solid #21475b;border-radius:4px}.candidate-causes li>span{width:4px;height:4px;background:#72d0dd;flex:0 0 4px;border-radius:50%;margin-top:9px}.result-facts{display:grid;gap:10px;margin:14px 0;font-size:12px}.result-facts>div{display:grid;grid-template-columns:65px minmax(0,1fr);gap:9px;line-height:1.6}.result-facts dt{color:var(--m-muted)}.result-facts dd{margin:0;color:#c2d7e8;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}.result-message{font-size:13px;line-height:1.8;color:#9fb8cc;margin:10px 0}.probability-details{font-size:12px;color:#9fb8cc;margin-top:14px}.probability-details summary{cursor:pointer;padding:7px 0;color:#7ed0dd}.probability-details table{width:100%;font-size:12px;border-collapse:collapse}.probability-details th,.probability-details td{height:29px;border-bottom:1px solid var(--m-subtle);text-align:left;padding:3px 6px;font-size:12px;color:#b9cde0}.investigation-section{padding-top:15px;margin-top:16px;border-top:1px solid var(--m-subtle)}.investigation-section>p{margin-top:9px;font-size:13px;color:#bdd2e2;overflow-wrap:anywhere}.investigation-section>small{display:block;font-size:12px;color:var(--m-muted);margin-top:4px}.investigation-actions{display:flex;align-items:center;justify-content:center;gap:9px;padding:11px 14px;border-top:1px solid var(--m-subtle);flex:0 0 56px;background:#0b1d2f}.investigation-actions button{width:100%}.evidence-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:4px 0 16px}.evidence-summary>div{text-align:center;background:#102a41;padding:9px 4px;border:1px solid #243f57;border-radius:4px}.evidence-summary strong{display:block;font-size:21px;font-weight:500;color:#c9e0ed;line-height:1.4}.evidence-summary span{display:block;color:var(--m-muted);font-size:12px}.evidence-table-wrap{overflow:auto}.evidence-fragments{width:100%;min-width:370px;border-collapse:collapse;font-size:12px}.evidence-fragments th,.evidence-fragments td{height:31px;padding:4px 6px;border-bottom:1px solid #20394e;font-size:12px;white-space:nowrap;text-align:left;color:#aec4d9}.evidence-fragments th{color:#809fb9;background:#112a40}.case-current{padding:17px 14px;border:1px solid #2a4c63;border-radius:5px;background:#123044}.case-current>span{font-size:12px;color:var(--m-muted)}.case-current strong{display:block;font-size:22px;font-weight:500;color:#b4e1e8;margin-top:4px}.case-stage-list{margin:16px 0;padding-left:22px;display:grid;gap:14px;font-size:13px;color:#acc4d8}.case-stage-list li::marker{color:#67bbcf}
+.event-table-wrap{flex:1;min-height:0;overflow:auto}.monitor-event-table{width:100%;min-width:720px;border-collapse:collapse;font-size:12px}.monitor-event-table thead{position:sticky;top:0;background:#10273b;z-index:1}.monitor-event-table th{height:29px;padding:4px 14px;text-align:left;color:#88a3be;font-size:12px;font-weight:400;white-space:nowrap;border-bottom:1px solid var(--m-border)}.monitor-event-table td{height:34px;padding:4px 14px;color:#b8cde0;font-size:12px;white-space:nowrap;border-bottom:1px solid #193349}.monitor-event-table tr.selected td{background:#15384b}.monitor-event-table td .monitor-chip{line-height:17px}.monitor-event-table tbody tr:hover{background:#123047}
+.trend-panel{position:relative}.forecast-details{margin:0;font-size:12px;flex-shrink:0}.forecast-details summary{font-size:12px;color:#7ed0dd;padding:2px 0}.forecast-details[open]>summary{margin:0}.forecast-data-popover{position:absolute;z-index:5;bottom:30px;left:10px;right:10px;max-height:calc(100% - 42px);padding:12px;background:#10283e;border:1px solid #3b647e;border-radius:5px;box-shadow:0 9px 22px #0006;overflow:auto;white-space:normal}.forecast-data-popover h3{font-size:14px;margin:0 0 7px;color:#d1e6f3}.forecast-data-popover p{font-size:12px;color:#a2bed2;margin:4px 0;overflow-wrap:anywhere}.forecast-data-popover table{min-width:520px;font-size:12px;margin-top:10px}.forecast-data-popover th,.forecast-data-popover td{font-size:12px;padding:6px 8px;color:#bfd3e3;border-bottom:1px solid #274359;background:none}
+@media(min-width:1700px){.monitor-stage{grid-template-columns:minmax(270px,.8fr) minmax(440px,2.25fr) minmax(340px,1fr)}.monitor-panel-head{padding-inline:16px}.monitor-panel-head h2{font-size:16px}.monitor-point{min-height:56px}.channel-card strong{font-size:28px}.summary-card strong{font-size:32px}.summary-card strong.status-number{font-size:25px}}
+@media(max-width:1250px){.monitor-stage{grid-template-columns:minmax(195px,.8fr) minmax(310px,1.7fr) minmax(270px,1fr);gap:10px}.monitor-workspace{gap:10px;font-size:13px}.monitor-summary{gap:10px}.summary-card{padding-inline:12px}.summary-card strong.status-number{font-size:21px}.channel-grid{gap:7px;padding:9px}.channel-card{padding:8px}.channel-card strong{font-size:21px}.channel-card strong small{display:block;margin:4px 0 0}.monitor-panel-head{padding-inline:11px}.monitor-panel-head .monitor-caption{max-width:175px}.point-signal{display:none}.quality-content{padding:11px}.quality-counts{gap:8px}.quality-counts>div{display:grid;gap:0}.quality-counts strong{font-size:23px}.investigation-body{padding:12px}.forecast-toolbar{flex-wrap:wrap}.forecast-toolbar label{width:100%;flex-basis:100%}.forecast-toolbar .monitor-button{margin-left:auto}.monitor-chart-wrap{min-height:100px}}
+@media(max-width:1050px){.monitor-workspace{height:auto;grid-template-rows:88px auto}.monitor-stage{grid-template-columns:minmax(0,1.6fr) minmax(270px,1fr);grid-template-rows:250px 285px 250px 170px;grid-template-areas:"channels investigation" "trend investigation" "points quality" "events events"}.monitor-summary{grid-template-columns:repeat(4,minmax(0,1fr))}.summary-card>div{height:33px}.summary-card strong.status-number{font-size:19px}.summary-card small{font-size:12px}.summary-card p{font-size:12px}.channel-card strong small{display:inline;margin-left:4px}.forecast-toolbar{flex-wrap:nowrap}.forecast-toolbar label{width:auto;flex-basis:auto}.monitor-point{min-height:48px}.monitor-point-list{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}.monitor-point .point-copy small{display:none}.point-measure{max-width:70px}.point-measure b{font-size:15px}.point-copy strong{white-space:normal}.quality-counts>div{display:flex}}
+@media(max-width:760px){.monitor-workspace{height:auto;display:flex;flex-direction:column;gap:12px}.monitor-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.summary-card{height:87px;padding:9px 12px}.summary-card strong.status-number{font-size:23px}.summary-card strong{font-size:28px}.monitor-stage{display:flex;flex-direction:column;gap:12px}.channels-panel{height:285px}.trend-panel{height:330px}.investigation-panel{height:520px}.point-panel{height:300px}.quality-panel{min-height:255px}.events-panel{height:235px}.monitor-point-list{grid-template-columns:1fr}.monitor-point{min-height:52px}.point-signal{display:flex}.monitor-point .point-copy small{display:block}.point-measure{max-width:110px}.channel-grid{grid-template-columns:repeat(3,minmax(0,1fr));padding:10px}.channel-heading{font-size:12px}.channel-card strong{font-size:23px}.channel-card strong small{display:block;margin:4px 0 0}.monitor-panel-head .monitor-caption{max-width:200px}.monitor-panel-head h2{font-size:15px}.forecast-toolbar{padding-top:10px}.forecast-toolbar label{font-size:12px}.monitor-chart-wrap{min-height:180px}.summary-card>span{font-size:12px}.summary-card p{font-size:12px}.monitor-panel-head{height:44px;flex-basis:44px}.quality-counts>div{display:flex}.quality-content{overflow:visible;padding:14px}.quality-facts{gap:9px}.quality-note{margin-bottom:4px}.investigation-body{padding:15px}.candidate-causes{grid-template-columns:1fr 1fr;gap:6px}.candidate-causes li{font-size:13px;padding:6px 8px}.result-facts>div{grid-template-columns:78px minmax(0,1fr)}.monitor-point-list{padding:4px 8px}.channel-time{font-size:12px}.investigation-welcome{min-height:320px}.event-table-wrap .monitor-empty{white-space:normal}}
+@media(max-width:430px){.channel-grid{gap:7px;grid-template-columns:repeat(2,minmax(0,1fr))}.channels-panel{height:340px}.channel-card{padding:8px 10px}.channel-card strong{font-size:25px}.channel-card strong small{display:inline;margin-left:4px}.channel-time{display:none}.channel-heading{font-size:12px}.monitor-panel-head>div{gap:7px}.monitor-panel-head .monitor-caption{max-width:125px}.summary-card small{max-width:62px;font-size:12px}.summary-card strong.status-number{font-size:21px}.summary-card p{font-size:12px}.forecast-toolbar{gap:7px;padding-inline:10px}.forecast-toolbar label{gap:5px}.forecast-toolbar select{max-width:175px;font-size:12px}.monitor-button{padding-inline:8px;font-size:12px}.candidate-causes{grid-template-columns:1fr}.investigation-panel{height:560px}.monitor-panel-foot{padding-inline:11px}.quality-counts strong{font-size:25px}}
+.trend-panel .monitor-chart-wrap,.trend-panel .monitor-chart{min-height:200px}
+.trend-panel .forecast-toolbar{flex-wrap:nowrap}.trend-panel .forecast-toolbar label{width:auto;flex-basis:auto}.trend-panel .forecast-toolbar .monitor-button{margin-left:0}
+@media(max-width:1050px) and (min-width:761px){.monitor-stage{grid-template-rows:290px 320px 250px 170px}}
+</style>

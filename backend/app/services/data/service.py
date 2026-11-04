@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from zipfile import BadZipFile
 
 from openpyxl import load_workbook
-from sqlalchemy import func, insert, select
+from sqlalchemy import case, func, insert, select
 
 from app.db import Store, observations
 from app.schemas.common import Actor, DomainError, ExecutionContext, now_utc, utcstr
@@ -101,6 +101,37 @@ class DataService:
             actor.require_face(self._source(source_id)["face_id"])
         return [p for p in self.store.list("point") if p["face_id"] in actor.face_ids
                 and (source_id is None or p["source_id"] == source_id)]
+
+    def get_coverage(self, actor: Actor, source_id: str) -> dict:
+        """Catalog stored history for replay selection; session queries enforce visibility."""
+        actor.require_role("ventilation", "gas_governance", "safety_management")
+        source = self._source(source_id)
+        actor.require_face(source["face_id"])
+        points = self.list_points(actor, source_id)
+        statistics = {}
+        if points:
+            valid_time = case((observations.c.value.is_not(None), observations.c.event_time))
+            statement = select(
+                observations.c.point_id, func.count().label("observation_count"),
+                func.count(observations.c.value).label("valid_observation_count"),
+                func.min(valid_time).label("start_at"), func.max(valid_time).label("end_at"),
+            ).where(observations.c.source_id == source_id,
+                    observations.c.point_id.in_([point["point_id"] for point in points])).group_by(observations.c.point_id)
+            with self.store.transaction() as connection:
+                statistics = {row["point_id"]: dict(row) for row in connection.execute(statement).mappings()}
+        result = []
+        for point in points:
+            item = {key: point[key] for key in ("point_id", "name", "quantity", "unit", "unit_status", "lineage", "mapping_status")}
+            item.update(statistics.get(point["point_id"], dict(observation_count=0,
+                valid_observation_count=0, start_at=None, end_at=None)))
+            result.append(item)
+        starts = [point["start_at"] for point in result if point["start_at"] is not None]
+        ends = [point["end_at"] for point in result if point["end_at"] is not None]
+        return dict(source_id=source_id, face_id=source["face_id"], semantics="stored_history_catalog",
+                    validity_policy="non_null_value", points=result,
+                    observation_count=sum(point["observation_count"] for point in result),
+                    valid_observation_count=sum(point["valid_observation_count"] for point in result),
+                    start_at=min(starts) if starts else None, end_at=max(ends) if ends else None)
 
     def register_file(self, path: Path, actor: Actor):
         actor.require_role("safety_management")
