@@ -27,13 +27,13 @@
 | --- | --- | --- | --- | --- |
 | auth | 登录凭据、令牌；校验角色及工作面权限 | Actor、访问范围、登录状态 | `POST /auth/login`、`GET /auth/me`、`POST /auth/logout` | 所有业务入口调用；前端按身份显示操作 |
 | data | 上传文件、列映射或标准现场读数；点位映射、质量检查、时钟内查询 | 数据源、点位、观测、质量标志及原始行引用 | `GET/POST /sources`、`GET/POST /points`、`POST /files`、`POST /history-imports`、`POST /ingest`、`GET /observations` | 为 sessions、prediction、alerts、traceability 提供数据；后续接现场协议适配 |
-| sessions | 来源、模式、起始时刻、速度、会话动作；维护单调数据时钟 | 会话、执行上下文、一次推进结果 | `GET/POST /sessions`、`GET /sessions/{session_id}`、`POST /sessions/{session_id}/actions`、`POST /sessions/{session_id}/tick` | runner 调用 data、prediction、alerts；后续在事件提交后触发主动简报任务 |
+| sessions | 来源、模式、起始时刻、速度、会话动作；维护单调数据时钟 | 会话、执行上下文、一次推进结果 | `GET/POST /sessions`、`GET /sessions/{session_id}`、`POST /sessions/{session_id}/actions`、`POST /sessions/{session_id}/tick` | runner 调用 data、prediction、alerts；事件提交后触发去重的后台简报任务 |
 | prediction | 会话、测点、模型版本、闭合历史窗口；预测及候选溯源运行 | 预测序列、候选类别、运行编号、输入引用、缺失字段 | `GET/POST /models`、`GET /model-packages`、`POST /model-package-runs`、`GET /model-package-runs/{run_id}`、`POST /forecasts`、`GET /forecasts/{run_id}` | 读取 data，通过本地模型运行环境推理；traceability 调用事件候选溯源 |
 | alerts | 有效观测或物理浓度预测、规则版本；识别并修订事件 | 事件编号、类型、等级、状态、版本及证据引用 | `GET /rules`、`GET /events` | runner 调用判断；traceability、cases 读取事件快照；当前规则接口为查询 |
 | traceability | 当前会话、事件编号及可选事件版本；冻结证据并触发适用的候选溯源 | 观测片段、预测运行、规则、候选溯源、缺失字段 | `GET /evidence` | 调用 alerts、data、prediction；作为页面和智能体统一证据入口 |
 | knowledge | 资料元数据、正文片段、审核结论、检索词、事件及引用编号 | 可引用片段、建议版本、审核经验 | `GET /references`、`POST /references/imports`、`GET /references/{entry_id}`、`POST /references/{entry_id}/review`、`POST /references/search`、`POST /advice`、`POST /experiences`、`POST /experiences/{experience_id}/review` | 读取事件依据、已审核资料及已复核处置快照；后续贯通文档上传与原文定位 |
 | cases | 事件、人工动作、建议编号与版本、执行及反馈内容 | 处置阶段、动作历史、建议审核状态、待办、复核快照 | `GET /cases/{event_id}`、`POST /cases/{event_id}/actions` | 调用 alerts、knowledge、auth；供前端操作和 agent 查询 |
-| agent | 用户问题或事件简报任务；服务端注入身份、来源和时钟 | 回答、工具步骤、结果卡、引用、任务状态及审计 | `POST /chat`、`GET /tasks/{task_id}`、`POST /tasks/{task_id}/cancel` | 编排八工具；后续增加主动简报和页面任务联动 |
+| agent | 用户问题或事件简报任务；服务端注入身份、来源和时钟 | 回答、工具步骤、结果卡、引用、任务状态及审计 | `POST /chat`、`GET /tasks/{task_id}`、`POST /tasks/{task_id}/cancel`、`GET/POST /events/{event_id}/brief`、`POST /events/{event_id}/brief/cancel` | 对话编排八工具；主动简报限定四个只读工具并展示引用 |
 | evaluation | 冻结数据清单、事件、样本、任务和有效监测时长 | 清单哈希、匹配明细、指标分子分母和报告 | `GET/POST /evaluations`、`GET /evaluations/{evaluation_id}` | 读取冻结记录；后续在本服务内增加会话记录采集器 |
 | frontend | 登录态、当前会话、选中测点/事件、各模块返回值 | 综合态势、事件研判、处置、资料、评估页面 | 调用上述 HTTP 接口 | 统一联动状态、时间和版本；迁移深蓝设计并接真实数据 |
 
@@ -72,7 +72,7 @@ flowchart TD
   T --> CA[prediction 候选溯源与结果复用]
   T --> PANEL[研判与原始依据面板]
   CA --> PANEL
-  EV -. 阶段二拟实现 .-> G[agent 异步事件简报]
+  EV --> G[agent 异步事件简报]
   PANEL --> K[knowledge 检索已审核资料并生成建议]
   K --> C[cases 人工审核与处置]
   C --> X[已复核快照与待审核经验]
@@ -115,11 +115,11 @@ flowchart TD
 | 查阅规程并起草建议 | get_event_evidence → search_documents → draft_advice | 可打开的规程片段、建议版本和审核入口 |
 | 查询处置进展 | get_case | 当前阶段、已审核建议、执行反馈及待办 |
 
-主动简报在阶段二实现：事件提交成功后，sessions 向 agent 提交异步任务；新事件和等级升级各生成对应版本简报。事件和等级先显示，简报随后加载。
+主动简报已实现：事件提交成功后，sessions 向 agent 提交异步任务；新事件和等级升级各生成对应版本简报。事件和等级先显示，简报随后加载。真实来源外发默认关闭，具体字段和目的地确认后按来源放行。
 
 简报保存事件编号/版本、会话、来源、as_of、模型/规则版本、证据引用、任务编号和生成状态。相同键复用结果；失败时保留结构化事件信息并支持人工重试。任务通过现有证据入口读取候选溯源，沿用其缓存规则。
 
-**拟新增接口**：`GET /api/events/{event_id}/brief?session_id=...&event_revision=...` 读取指定版本简报；`POST /api/events/{event_id}/brief` 请求生成或重试，返回现有 task_id。身份与事件可见性由服务端验证。
+**已实现接口**：`GET /api/events/{event_id}/brief?session_id=...&event_revision=...` 读取指定版本简报；`POST /api/events/{event_id}/brief` 请求生成或重试；`POST /api/events/{event_id}/brief/cancel`取消。身份与事件可见性由服务端验证。普通修订可查看同等级的较早版本，显示版本差异；实现及验收见[主动简报说明](event-briefs.md)。
 
 ## 7. 资料、建议与人工闭环设计
 

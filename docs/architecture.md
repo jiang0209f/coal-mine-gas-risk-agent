@@ -12,7 +12,7 @@
 | traceability | 冻结事件对应的观测、规则和模型依据，附带候选溯源 | get_event_evidence | alerts/data/prediction/溯源适配器 |
 | knowledge | 原文页段、审核、检索、建议内容版本、经验 | import_reference/search_documents/draft_advice | 服务端依据及批准引用 |
 | cases | 人工确认、建议审核事实、执行/反馈/复核及冻结快照 | record_action/get_case/export_reviewed_case | alerts/knowledge |
-| agent | DeepSeek八工具编排、任务、上下文隔离与审计 | chat/submit/get_task/cancel_task | 只读工具及建议草稿 |
+| agent | DeepSeek八工具对话、事件主动简报、上下文隔离与审计 | chat/submit/get_task/cancel_task；event_briefs.submit/get/cancel | 对话沿用八工具；主动简报限定四个只读工具 |
 | evaluation | 冻结清单、事件一对一匹配、分子分母和报告 | freeze_manifest/build_report/get_report | 冻结导出记录 |
 | frontend | 会话、曲线、依据、资料及人工闭环、对话、评估 | /api/* | HTTP API |
 
@@ -65,3 +65,11 @@ flowchart LR
 深蓝Vue工作台通过 `GET /api/sources/{source_id}/coverage` 选择实际历史时段，通过 `GET /api/forecasts` 恢复当前会话、测点和模型版本的最新预测。`POST /api/forecasts` 接受可选 `version`，与模型选择保持一致。事件依据请求绑定 `event_revision`，实测事件可同时展示适用预测和候选溯源。工况测点沿用数据查询，页面不启动甲烷预测和规则请求。
 
 前端请求同时校验代次与会话、来源、测点、数据时钟，切换后清空旧结果。监测卡和曲线保持同一可见性口径，预测区间显示其起算及结束时间。实现与验收见[前端联动说明](frontend-linkage.md)。
+
+## 新预警主动简报
+
+Runner在事件持久化后，对新事件或等级升级原子认领自动触发记录，再提交后台简报。同等级普通修订、重复及并发推进复用触发记录。`EventBriefsService`属于现有agent模块，保存事件冻结版本和任务；读取依据后使用四个只读工具生成正文，保留真实步骤与引用。
+
+`GET/POST /api/events/{event_id}/brief`读取或生成指定修订简报；`POST /api/events/{event_id}/brief/cancel`取消任务。GET可回退同等级的较早可见简报，并返回实际版本、请求版本及stale标记。共享读取保持工作面、来源、会话和时钟限制，普通聊天不得改写简报任务。取消和重启中断同步结束未完成工具步骤。
+
+真实来源外发受本地允许名单约束，默认关闭；未授权保留本地工具依据。具体行为、接口和字段见[主动简报说明](event-briefs.md)及[拟外发字段](event-brief-cloud-fields.md)。登录页面及原认证入口保持现状。

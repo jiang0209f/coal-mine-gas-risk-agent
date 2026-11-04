@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { briefMatches, briefScopeKey, briefCitations, briefTextParts, localCitationDetail, shouldPollBrief } from '../src/briefs.mjs'
 import { createApiClient } from '../src/api.mjs'
 import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, seriesToPoints } from '../src/utils.mjs'
 import { chooseModelKey, contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, latestVisibleReading, modelKey, replayStart } from '../src/workspace.mjs'
@@ -153,4 +154,62 @@ test('channel cards use the latest visible valid row and reject future available
   ] }
   assert.deepEqual(latestVisibleReading(packet, asOf), visible)
   assert.equal(latestVisibleReading({ rows: [{ event_time: '2022-02-05T13:13:00Z', value: 9.99 }] }, asOf), null)
+})
+
+test('event brief matches only its visible session source event and revision', () => {
+  const session = { session_id: 's', source_id: 'source', as_of: '2022-02-05T13:12:00Z' }
+  const event = { event_id: 'e', event_revision: 2, point_id: 'T0' }
+  const brief = { session_id: 's', source_id: 'source', event_id: 'e', event_revision: 2, as_of: '2022-02-05T13:10:00Z', status: 'running' }
+  assert.equal(briefMatches(brief, session, event), true)
+  for (const update of [{ session_id: 'other' }, { source_id: 'other' }, { event_id: 'other' }, { event_revision: 1 }, { as_of: '2022-02-05T13:13:00Z' }]) assert.equal(briefMatches({ ...brief, ...update }, session, event), false)
+  assert.equal(briefMatches(null, session, event), false)
+  assert.equal(briefMatches({ ...brief, event_revision: 1, requested_event_revision: 2, stale: true }, session, event), true)
+  assert.equal(briefMatches({ ...brief, event_revision: 1, requested_event_revision: 3, stale: true }, session, event), false)
+  assert.equal(briefMatches({ ...brief, event_revision: 3, requested_event_revision: 2, stale: true }, session, event), false)
+  assert.equal(briefMatches({ ...brief, task: { session_id: 'other', source_id: 'source', event_id: 'e', event_revision: 2 } }, session, event), false)
+  assert.notEqual(briefScopeKey(session, event), briefScopeKey(session, { ...event, event_revision: 3 }))
+  assert.notEqual(briefScopeKey(session, event), briefScopeKey({ ...session, as_of: '2022-02-05T13:13:00Z' }, event))
+})
+
+test('brief polling is bounded to queued and running states', () => {
+  for (const status of ['queued', 'running']) assert.equal(shouldPollBrief({ status }), true)
+  for (const status of ['not_started', 'completed', 'partial', 'failed', 'cancelled']) assert.equal(shouldPollBrief({ status }), false)
+  assert.equal(shouldPollBrief(null), false)
+})
+
+test('only returned citations become links and unknown model markers stay text', () => {
+  const citation = { citation_id: 'E1', kind: 'event', label: '预警事件', event_id: 'e', event_revision: 2 }
+  const packet = { task: { citations: [citation, { ...citation }, { citation_id: 'E2', kind: 'external_url', href: 'https://untrusted.invalid' }] } }
+  assert.deepEqual(briefCitations(packet), [citation])
+  assert.deepEqual(briefTextParts('依据[E1]，未知[E99]。', briefCitations(packet)), [
+    { text: '依据' }, { text: '[E1]', citation }, { text: '，未知[E99]。' },
+  ])
+})
+
+test('brief references open the frozen task cards and retain their original revision', () => {
+  const old = { event_id: 'e', event_revision: 1, point_id: 'T0', start_at: '2022-02-05T13:07:00Z' }
+  const observation = { id: 'old-observation', event_time: '2022-02-05T13:07:00Z', value: .7, source_file_id: 'original-file', row_number: 8 }
+  const frozen = { task: { result_cards: [{ tool: 'get_event_evidence', data: { event_snapshot: old, observation_fragments: [observation], rules: { rule_version: 'rule-v1' } } }] } }
+  const eventDetail = localCitationDetail(frozen, { kind: 'event', event_id: 'e', event_revision: 1, label: '事件' })
+  assert.equal(eventDetail.event, old)
+  assert.equal(localCitationDetail(frozen, { kind: 'observation', observation_id: 'old-observation' }).observations[0], observation)
+  assert.equal(localCitationDetail(frozen, { kind: 'rule' }).rules.rule_version, 'rule-v1')
+  assert.equal(localCitationDetail(frozen, { kind: 'observation', observation_id: 'not-in-frozen-card' }), null)
+})
+
+test('brief display removes heading and emphasis markers while keeping original text and citations', () => {
+  const citation = { citation_id: 'E1', kind: 'event', event_id: 'e', event_revision: 1 }
+  const task = { final_text: '## **事件概况**\n**实测预警** [E1]\n### 待核实\n__监测记录__。' }
+  const original = task.final_text
+  assert.deepEqual(briefTextParts(task.final_text, [citation]), [
+    { text: '事件概况\n实测预警 ' }, { text: '[E1]', citation }, { text: '\n待核实\n监测记录。' },
+  ])
+  assert.equal(task.final_text, original)
+})
+
+test('brief display translates business codes but preserves identifiers timestamps and unmatched syntax', () => {
+  const source = '事件 observed_exceedance；forecast_exceedance。质量：availability_inferred、unit_inferred、suspected_calibration、planned_calibration、confirmed_calibration。\nmodel_id=fedformer-lgbm-31002 version=trained-20261103-v1 observed_exceedance-v2 #1测点\nmodel_id=unit_inferred version: "observed_exceedance"\n2022-02-05T13:12:00+00:00，13:07，2 ** 3；<img src=x>'
+  const text = briefTextParts(source, []).map(part => part.text).join('')
+  assert.ok(text.includes('事件 实测超限；预测预警。质量：可用时间推定、单位推定、疑似标校、计划标校、已确认标校。'))
+  for (const literal of ['model_id=fedformer-lgbm-31002', 'version=trained-20261103-v1', 'model_id=unit_inferred', 'version: "observed_exceedance"', 'observed_exceedance-v2', '#1测点', '2022-02-05T13:12:00+00:00', '13:07', '2 ** 3', '<img src=x>']) assert.ok(text.includes(literal), literal)
 })

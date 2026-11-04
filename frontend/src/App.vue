@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { createApiClient } from './api.mjs'
 import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, queryString } from './utils.mjs'
 import { chooseModelKey, contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, latestVisibleReading, modelKey, replayStart } from './workspace.mjs'
+import { briefCitations, briefMatches, briefScopeKey, localCitationDetail, shouldPollBrief } from './briefs.mjs'
 import MonitorWorkspace from './components/MonitorWorkspace.vue'
 
 const token = ref(''), user = ref(null), username = ref(''), password = ref('')
@@ -12,14 +13,17 @@ const active = ref(null), mode = ref('historical_replay'), startTime = ref(''), 
 const series = ref({ rows: [] }), events = ref([]), rules = ref(null), models = ref([]), reports = ref([])
 const selectedModel = ref(''), forecast = ref(null), pointReadings = ref({}), forecastLoading = ref(false), forecastError = ref(''), eventLoading = ref(false)
 const selectedEvent = ref(null), evidence = ref(null), caseResult = ref(null), selectedAdvice = ref('')
+const eventBrief = ref(null), briefLoading = ref(false), briefError = ref(''), briefActionBusy = ref(false), briefPollPaused = ref(false), briefFocusToken = ref(0)
+const citationDetail = ref(null), citationLoading = ref(false), citationError = ref('')
 const caseContent = ref(''), refs = ref([]), referenceQuery = ref(''), searchResults = ref([]), selectedRefs = ref([])
 const uploadFile = ref(null), importResult = ref(null), importStart = ref(''), importEnd = ref('')
 const importLineage = ref('unknown')
 const mappingText = ref('')
 const documentForm = ref({ title: '', source: '', version: '1', text: '', page: 1 })
 const chatInput = ref(''), messages = ref([]), chatBusy = ref(false), chatTask = ref(null)
-let pollVersion = 0, playbackTimer, busySequence = 0
+let pollVersion = 0, playbackTimer, busySequence = 0, briefPollTimer, briefPollCount = 0
 const sourceRequests = createRequestGuard(), workspaceRequests = createRequestGuard(), eventRequests = createRequestGuard(), forecastRequests = createRequestGuard()
+const briefRequests = createRequestGuard(), citationRequests = createRequestGuard()
 const roles = { ventilation: '通风人员', gas_governance: '瓦斯治理人员', safety_management: '安全管理人员' }
 const phases = { new: '待确认', confirmed: '已确认', advice_reviewed: '建议已审核', executed: '已执行', feedback_submitted: '待复核', reviewed: '已复核' }
 const states = { running: '进行中', paused: '已暂停', ended: '已结束', completed: '已完成', failed: '失败', partial: '部分完成', awaiting_input: '待补充', cancelled: '已取消' }
@@ -66,6 +70,7 @@ async function run(label, callback) {
 }
 
 function clearEvent() {
+  clearBrief()
   eventRequests.invalidate(); eventLoading.value = false
   selectedEvent.value = null; evidence.value = null; caseResult.value = null; selectedAdvice.value = ''
   selectedRefs.value = []; searchResults.value = []; caseContent.value = ''
@@ -146,7 +151,7 @@ async function selectSession(event) {
     await changeSource(); await refreshWorkspace()
   })
 }
-async function refreshWorkspace() {
+async function refreshWorkspace(briefTriggers = null) {
   if (!active.value || !pointId.value) return
   const session = active.value
   const selectedPoint = pointId.value
@@ -154,6 +159,7 @@ async function refreshWorkspace() {
   const methane = isMethane.value
   const window = displayWindow(session.as_of, previousEvent)
   const currentPoints = [...points.value]
+  clearBrief()
   series.value = { rows: [] }; events.value = []; rules.value = null; forecast.value = null; pointReadings.value = {}
   forecastRequests.invalidate(); eventRequests.invalidate(); evidence.value = null; caseResult.value = null
   const params = { session_id: session.session_id, point_id: selectedPoint }
@@ -176,7 +182,7 @@ async function refreshWorkspace() {
   }))
   selectedModel.value = chooseModelKey(models.value, selectedModel.value)
   const updatedEvent = previousEvent && events.value.find(item => item.event_id === previousEvent.event_id)
-  if (updatedEvent) await loadEvent(updatedEvent)
+  if (updatedEvent) await loadEvent(updatedEvent, briefTriggers?.has(updatedEvent.event_id))
   else { clearEvent(); await loadLatestForecast() }
 }
 
@@ -239,22 +245,32 @@ async function tick(seconds = null) {
   if (!active.value || busy.value) return
   await run('推进数据时间', async () => {
     const sessionId = active.value.session_id
-    await post(`/sessions/${sessionId}/tick`, seconds === null || active.value.mode === 'realtime' ? {} : { target_as_of: advanceAsOf(active.value.as_of, seconds) })
+    const tickResult = await post(`/sessions/${sessionId}/tick`, seconds === null || active.value.mode === 'realtime' ? {} : { target_as_of: advanceAsOf(active.value.as_of, seconds) })
     const result = await api(`/sessions/${sessionId}`)
     if (active.value?.session_id !== sessionId) return
     active.value = result
-    await refreshWorkspace()
+    const briefTriggers = new Set((tickResult.briefs || []).map(item => item.event_id))
+    await refreshWorkspace(briefTriggers)
+    const newBrief = (tickResult.briefs || []).find(item => events.value.some(event => event.event_id === item.event_id))
+    if (newBrief && tab.value === 'monitor' && active.value?.session_id === sessionId) {
+      const event = events.value.find(item => item.event_id === newBrief.event_id)
+      if (event && (selectedEvent.value?.event_id !== event.event_id || selectedEvent.value?.event_revision !== event.event_revision)) await loadEvent(event, true)
+      else briefFocusToken.value++
+    } else if (tickResult.briefs?.length) notice.value = '新预警已登记研判简报任务，可在对应测点查看。'
   })
 }
-async function loadEvent(event) {
+async function loadEvent(event, focusBrief = false) {
   if (!event || !active.value || event.point_id !== pointId.value) return
+  clearBrief()
   const request = eventRequests.begin(), session = active.value, selectedPoint = pointId.value, scope = contextKey(session, selectedPoint)
   const currentForecast = forecast.value, chosenModel = selectedModel.value
   if (selectedEvent.value?.event_id !== event.event_id || selectedEvent.value?.event_revision !== event.event_revision) caseContent.value = ''
   forecastRequests.invalidate(); forecast.value = forecastForEvent(currentForecast, null, session, selectedPoint, chosenModel); forecastLoading.value = false; forecastError.value = ''
   evidence.value = null; caseResult.value = null; selectedAdvice.value = ''; selectedRefs.value = []; searchResults.value = []; series.value = { rows: [] }
   selectedEvent.value = event
+  if (focusBrief) briefFocusToken.value++
   eventLoading.value = true
+  void loadBrief()
   try {
     const results = await Promise.allSettled([
       api(`/evidence?${queryString({ session_id: session.session_id, event_id: event.event_id, event_revision: event.event_revision })}`),
@@ -277,6 +293,92 @@ async function loadEvent(event) {
     else { series.value = { rows: [] }; error.value = results[2].reason.message }
     if (!forecast.value) await loadLatestForecast()
   } finally { if (eventRequests.isCurrent(request)) eventLoading.value = false }
+}
+
+function closeCitation() {
+  citationRequests.invalidate(); citationDetail.value = null; citationLoading.value = false; citationError.value = ''
+}
+function clearBrief() {
+  clearTimeout(briefPollTimer); briefRequests.invalidate(); briefPollCount = 0
+  eventBrief.value = null; briefLoading.value = false; briefActionBusy.value = false; briefError.value = ''; briefPollPaused.value = false
+  closeCitation()
+}
+function applyBrief(result) {
+  if (eventBrief.value?.task_id !== result.task_id) closeCitation()
+  eventBrief.value = result
+}
+function scheduleBriefPoll() {
+  clearTimeout(briefPollTimer)
+  if (!shouldPollBrief(eventBrief.value)) return
+  if (briefPollCount >= 90) { briefPollPaused.value = true; return }
+  briefPollTimer = setTimeout(() => { briefPollCount++; loadBrief(true) }, 1000)
+}
+async function loadBrief(poll = false) {
+  if (!active.value || !selectedEvent.value) return
+  clearTimeout(briefPollTimer)
+  if (!poll) { briefPollCount = 0; briefPollPaused.value = false }
+  const session = active.value, event = selectedEvent.value, scope = briefScopeKey(session, event), request = briefRequests.begin()
+  if (!poll) briefLoading.value = true
+  briefError.value = ''
+  try {
+    const result = await api(`/events/${encodeURIComponent(event.event_id)}/brief?${queryString({ session_id: session.session_id, event_revision: event.event_revision })}`)
+    if (!briefRequests.isCurrent(request) || briefScopeKey(active.value, selectedEvent.value) !== scope) return
+    if (!briefMatches(result, session, event)) { briefError.value = '简报与当前事件版本不一致，请刷新。'; return }
+    applyBrief(result)
+    scheduleBriefPoll()
+  } catch (caught) { if (briefRequests.isCurrent(request)) briefError.value = caught.message }
+  finally { if (briefRequests.isCurrent(request)) briefLoading.value = false }
+}
+async function generateBrief(retry = false) {
+  if (!active.value || !selectedEvent.value || briefActionBusy.value) return
+  clearTimeout(briefPollTimer); briefRequests.invalidate(); briefPollCount = 0; briefPollPaused.value = false; closeCitation()
+  const session = active.value, event = selectedEvent.value, scope = briefScopeKey(session, event), request = briefRequests.begin()
+  briefActionBusy.value = true; briefError.value = ''
+  try {
+    const result = await post(`/events/${encodeURIComponent(event.event_id)}/brief`, { session_id: session.session_id, event_revision: event.event_revision, retry })
+    if (!briefRequests.isCurrent(request) || briefScopeKey(active.value, selectedEvent.value) !== scope) return
+    if (!briefMatches(result, session, event)) throw new Error('简报与当前事件版本不一致，请刷新。')
+    applyBrief(result); scheduleBriefPoll()
+  } catch (caught) { if (briefRequests.isCurrent(request)) briefError.value = caught.message }
+  finally { if (briefRequests.isCurrent(request)) briefActionBusy.value = false }
+}
+async function cancelBrief() {
+  if (!active.value || !selectedEvent.value || !eventBrief.value?.can_cancel || briefActionBusy.value) return
+  clearTimeout(briefPollTimer); briefRequests.invalidate()
+  const session = active.value, event = selectedEvent.value, scope = briefScopeKey(session, event), request = briefRequests.begin()
+  briefActionBusy.value = true; briefError.value = ''
+  try {
+    await post(`/events/${encodeURIComponent(event.event_id)}/brief/cancel`, { session_id: session.session_id, event_revision: eventBrief.value.event_revision })
+    if (briefRequests.isCurrent(request) && briefScopeKey(active.value, selectedEvent.value) === scope) await loadBrief()
+  } catch (caught) { if (briefScopeKey(active.value, selectedEvent.value) === scope) briefError.value = caught.message }
+  finally { if (briefScopeKey(active.value, selectedEvent.value) === scope) briefActionBusy.value = false }
+}
+async function openBriefCitation(requested) {
+  const citation = briefCitations(eventBrief.value).find(item => item.citation_id === requested.citation_id)
+  if (!citation || !active.value || !selectedEvent.value) return
+  closeCitation()
+  const local = localCitationDetail(eventBrief.value, citation)
+  if (local) { citationDetail.value = local; return }
+  const session = active.value, event = selectedEvent.value, scope = briefScopeKey(session, event), request = citationRequests.begin()
+  citationLoading.value = true
+  try {
+    let detail
+    if (citation.kind === 'forecast_run' && citation.run_id) {
+      detail = { title: citation.label || '预测结果', forecast: await api(`/forecasts/${encodeURIComponent(citation.run_id)}?${queryString({ session_id: session.session_id })}`) }
+    } else if (citation.kind === 'reference' && (citation.entry_id || citation.document_id)) {
+      const document = await api(`/references/${encodeURIComponent(citation.entry_id || citation.document_id)}?${queryString({ version: citation.version })}`)
+      detail = { title: document.title || citation.label || '资料原文', fragments: (document.fragments || []).filter(fragment => fragment.reference_id === citation.reference_id || (!citation.reference_id && JSON.stringify(fragment.locator) === JSON.stringify(citation.locator))) }
+      if (!detail.fragments.length) throw new Error('该引用对应的原文片段未返回。')
+    } else if (citation.kind === 'observation' && citation.event_time) {
+      const endAt = new Date(Date.parse(citation.event_time) + 1).toISOString()
+      const packet = await api(`/observations?${queryString({ session_id: session.session_id, point_id: citation.point_id || event.point_id, start_at: citation.event_time, end_at: endAt, limit: 100 })}`)
+      const observations = (packet.rows || []).filter(row => (row.id || row.observation_id) === citation.observation_id && Date.parse(row.available_at || row.event_time) <= Date.parse(eventBrief.value.as_of))
+      if (!observations.length) throw new Error('当前会话未返回该引用对应的监测记录。')
+      detail = { title: citation.label || '监测记录', observations, summary: `来源文件 ${citation.source_file_id || observations[0].source_file_id} · 原始行 ${citation.row_number ?? observations[0].row_number}` }
+    } else throw new Error('该依据的详细内容未随任务返回。')
+    if (citationRequests.isCurrent(request) && briefScopeKey(active.value, selectedEvent.value) === scope) citationDetail.value = detail
+  } catch (caught) { if (citationRequests.isCurrent(request)) citationError.value = caught.message }
+  finally { if (citationRequests.isCurrent(request)) citationLoading.value = false }
 }
 async function searchReferences() {
   await run('检索已批准资料', async () => {
@@ -371,7 +473,7 @@ watch(active, () => {
   clearInterval(playbackTimer)
   if (active.value?.state === 'running') playbackTimer = setInterval(() => tick(), 5000)
 })
-onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate(); clearInterval(playbackTimer) })
+onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate(); clearInterval(playbackTimer); clearBrief() })
 </script>
 
 <template>
@@ -392,7 +494,9 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
       <div class="content-grid" :class="{ 'monitor-layout': tab === 'monitor' }"><main class="main-column">
       <template v-if="tab === 'monitor'">
         <MonitorWorkspace :session="active" :source="source" :points="points" :point-id="pointId" :series="series" :point-readings="pointReadings" :events="events" :rules="rules" :models="models" :selected-model="selectedModel" :forecast="forecast" :selected-event="selectedEvent" :evidence="evidence" :case-result="caseResult" :busy="busy" :event-loading="eventLoading" :forecast-loading="forecastLoading" :forecast-error="forecastError" :window="chartWindow"
-          @select-point="choosePoint" @select-event="event => run('加载事件依据', () => loadEvent(event))" @select-model="chooseModel" @run-forecast="runForecast" @clear-event="run('返回当前监测', async () => { clearEvent(); await refreshWorkspace() })" @open-case="tab = 'cases'" @refresh="run('刷新数据', refreshWorkspace)" />
+          :event-brief="eventBrief" :brief-loading="briefLoading" :brief-error="briefError" :brief-action-busy="briefActionBusy" :brief-poll-paused="briefPollPaused" :brief-focus-token="briefFocusToken" :citation-detail="citationDetail" :citation-loading="citationLoading" :citation-error="citationError"
+          @select-point="choosePoint" @select-event="event => run('加载事件依据', () => loadEvent(event))" @select-model="chooseModel" @run-forecast="runForecast" @clear-event="run('返回当前监测', async () => { clearEvent(); await refreshWorkspace() })" @open-case="tab = 'cases'" @refresh="run('刷新数据', refreshWorkspace)"
+          @generate-brief="generateBrief(false)" @retry-brief="generateBrief(true)" @cancel-brief="cancelBrief" @refresh-brief="loadBrief()" @open-citation="openBriefCitation" @close-citation="closeCitation" />
         <section v-if="safety" class="panel"><details><summary>历史数据接入</summary><p class="muted">选择文件并核对字段映射；大表可按起止时间分段导入。</p><div class="form-row"><label>数据性质<select v-model="importLineage"><option value="unknown">来源待核实</option><option value="raw">原始监测记录</option><option value="processed">已处理数据</option></select></label><label>数据文件<input type="file" accept=".csv,.xlsx" @change="uploadFile = $event.target.files[0]"></label></div><div class="form-row"><label>开始时间（可选，UTC+8）<input v-model="importStart" type="datetime-local" step="1"></label><label>结束时间（可选，UTC+8）<input v-model="importEnd" type="datetime-local" step="1"></label></div><details><summary>高级配置：字段映射</summary><textarea v-model="mappingText" rows="10" class="code-input" aria-label="导入字段映射JSON"></textarea></details><button class="primary" :disabled="!!busy || !uploadFile || !sourceId" @click="importHistory">上传并导入</button><pre v-if="importResult" class="result-json">{{ pretty(importResult) }}</pre></details></section>
       </template>
       <template v-if="tab === 'knowledge'">

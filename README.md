@@ -10,6 +10,8 @@ FEDformer＋LightGBM 预测和 KMeans/SVC 候选溯源已用31002六通道加工
 
 正式深蓝工作台已接通真实监测、指定版本预测和事件溯源，支持恢复已保存预测、查看12个区间明细及切换事件依据。操作与真实数据验收见[前端联动说明](docs/frontend-linkage.md)。
 
+新增预警或等级升级后可后台生成[主动研判简报](docs/event-briefs.md)，展示工具进度、冻结依据和引用。来源外发允许名单默认关闭；确认[字段与目的地](docs/event-brief-cloud-fields.md)后配置 `EVENT_BRIEF_ALLOWED_SOURCE_IDS`，未授权来源保留本地结果。
+
 ## 安装与启动
 
 Python 3.11+、Node.js 22+：

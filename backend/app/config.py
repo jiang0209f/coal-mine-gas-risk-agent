@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     deepseek_timeout_seconds: float = Field(default=30, gt=0)
     deepseek_max_retries: int = Field(default=1, ge=0, le=1)
     deepseek_max_tokens: int = Field(default=512, gt=0)
+    event_brief_allowed_source_ids: list[str] = Field(default_factory=list)
 
     @field_validator("deepseek_api_key")
     @classmethod

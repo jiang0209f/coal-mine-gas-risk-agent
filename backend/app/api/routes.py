@@ -69,6 +69,17 @@ class Tick(Payload):
     target_as_of: AwareDatetime | None = None
 
 
+class EventBrief(Payload):
+    session_id: str = Field(min_length=1)
+    event_revision: int | None = Field(default=None, ge=1)
+    retry: bool = False
+
+
+class EventBriefCancel(Payload):
+    session_id: str = Field(min_length=1)
+    event_revision: int | None = Field(default=None, ge=1)
+
+
 class Forecast(Payload):
     session_id: str
     point_id: str
@@ -246,8 +257,9 @@ def session_action(session_id: str, body: SessionAction, a=Depends(actor), s=Dep
 
 
 @router.post("/sessions/{session_id}/tick")
-def tick(session_id: str, body: Tick, a=Depends(actor), s=Depends(services)):
-    return s["runner"].run_once(a, session_id, body.target_as_of)
+def tick(session_id: str, body: Tick, background_tasks: BackgroundTasks, a=Depends(actor), s=Depends(services)):
+    return s["runner"].run_once(a, session_id, body.target_as_of,
+                                schedule=lambda work: background_tasks.add_task(work))
 
 
 @router.get("/observations")
@@ -314,6 +326,25 @@ def events(session_id: str, point_id: str | None = None, a=Depends(actor), s=Dep
 @router.get("/evidence")
 def evidence(session_id: str, event_id: str, event_revision: int | None = None, a=Depends(actor), s=Depends(services)):
     return s["traceability"].get_event_evidence(s["sessions"].get_context(a, session_id), event_id, event_revision)
+
+
+@router.get("/events/{event_id}/brief")
+def event_brief(event_id: str, session_id: str, event_revision: int | None = Query(default=None, ge=1),
+                a=Depends(actor), s=Depends(services)):
+    return s["event_briefs"].get(s["sessions"].get_context(a, session_id), event_id, event_revision)
+
+
+@router.post("/events/{event_id}/brief")
+def submit_event_brief(event_id: str, body: EventBrief, background_tasks: BackgroundTasks,
+                       a=Depends(actor), s=Depends(services)):
+    return s["event_briefs"].submit(s["sessions"].get_context(a, body.session_id), event_id,
+                                   event_revision=body.event_revision, retry=body.retry,
+                                   schedule=lambda work: background_tasks.add_task(work))
+
+
+@router.post("/events/{event_id}/brief/cancel")
+def cancel_event_brief(event_id: str, body: EventBriefCancel, a=Depends(actor), s=Depends(services)):
+    return s["event_briefs"].cancel(s["sessions"].get_context(a, body.session_id), event_id, body.event_revision)
 
 
 @router.get("/cases/{event_id}")

@@ -5,6 +5,7 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { mineTime, seriesToPoints } from '../utils.mjs'
+import EventBrief from './EventBrief.vue'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, CanvasRenderer])
 const props = defineProps({
@@ -14,8 +15,10 @@ const props = defineProps({
   events: { type: Array, default: () => [] }, rules: Object,
   models: { type: Array, default: () => [] }, pointReadings: { type: Object, default: () => ({}) },
   busy: [String, Boolean], eventLoading: Boolean, forecastLoading: Boolean, forecastError: String,
+  eventBrief: Object, briefLoading: Boolean, briefError: String, briefActionBusy: Boolean, briefPollPaused: Boolean, briefFocusToken: Number,
+  citationDetail: Object, citationLoading: Boolean, citationError: String,
 })
-const emit = defineEmits(['select-point', 'select-event', 'select-model', 'run-forecast', 'clear-event', 'open-case', 'refresh'])
+const emit = defineEmits(['select-point', 'select-event', 'select-model', 'run-forecast', 'clear-event', 'open-case', 'refresh', 'generate-brief', 'retry-brief', 'cancel-brief', 'refresh-brief', 'open-citation', 'close-citation'])
 const investigationTab = ref('analysis')
 const chartEl = ref(null)
 let chart, resizeObserver
@@ -110,6 +113,7 @@ function renderChart() {
 }
 watch([chartPoints, intervals, () => props.rules, () => props.window, () => props.selectedEvent, chartEl], () => nextTick(renderChart))
 watch(() => props.selectedEvent?.event_id, () => { investigationTab.value = 'analysis' })
+watch(() => props.briefFocusToken, () => { if (props.selectedEvent) investigationTab.value = 'brief' })
 onBeforeUnmount(() => { resizeObserver?.disconnect(); chart?.dispose() })
 </script>
 
@@ -177,8 +181,8 @@ onBeforeUnmount(() => { resizeObserver?.disconnect(); chart?.dispose() })
 
       <section class="monitor-panel investigation-panel" aria-label="事件研判">
         <header class="monitor-panel-head"><h2>智能研判</h2><span :class="['monitor-chip', selectedEvent?.alert_level]">{{ selectedEvent ? `${levels[selectedEvent.alert_level] || ''}事件` : '待选事件' }}</span></header>
-        <div class="investigation-tabs" role="tablist" aria-label="事件研判内容"><button v-for="item in [{ id: 'analysis', label: '研判结论' }, { id: 'evidence', label: '原始依据' }, { id: 'case', label: '人工处置' }]" :key="item.id" role="tab" :aria-selected="investigationTab === item.id" :class="{ active: investigationTab === item.id }" @click="investigationTab = item.id">{{ item.label }}</button></div>
-        <div v-if="eventLoading" class="investigation-body monitor-empty" role="status">正在读取事件依据与溯源结果…</div>
+        <div class="investigation-tabs" role="tablist" aria-label="事件研判内容"><button v-for="item in [{ id: 'analysis', label: '研判结论' }, { id: 'brief', label: '研判简报' }, { id: 'evidence', label: '原始依据' }, { id: 'case', label: '人工处置' }]" :key="item.id" role="tab" :aria-selected="investigationTab === item.id" :class="{ active: investigationTab === item.id }" @click="investigationTab = item.id">{{ item.label }}</button></div>
+        <div v-if="eventLoading && investigationTab !== 'brief'" class="investigation-body monitor-empty" role="status">正在读取事件依据与溯源结果…</div>
         <div v-else-if="!selectedEvent" class="investigation-body investigation-welcome"><div class="investigation-symbol">◈</div><h3>选择事件查看研判</h3><p>候选原因、原始监测和处置记录随事件关联。</p><dl><div><dt>监测来源</dt><dd>{{ source?.face_id || '—' }} 工作面</dd></div><div><dt>可见事件</dt><dd>{{ events.length }} 条</dd></div></dl><button class="monitor-button" :disabled="!session || !!busy" @click="emit('refresh')">刷新监测</button></div>
         <div v-else class="investigation-body">
           <div class="selected-event-heading"><span :class="['monitor-chip', selectedEvent.alert_level]">{{ levels[selectedEvent.alert_level] }} · {{ eventName(selectedEvent) }}</span><strong>{{ selectedEvent.point_id }}</strong><p>{{ mineTime(selectedSnapshot?.start_at) }} <span v-if="snapshotRevision">· 第 {{ snapshotRevision }} 版</span></p></div>
@@ -189,6 +193,8 @@ onBeforeUnmount(() => { resizeObserver?.disconnect(); chart?.dispose() })
             </section>
             <div v-if="forecast?.status === 'completed'" class="investigation-section"><h3>关联预测</h3><p>{{ forecast.model_id }}</p><small>{{ forecastRange }}</small><dl class="result-facts"><div><dt>区间最高值</dt><dd>{{ number(forecastMaximum) }} {{ unit }}</dd></div><div><dt>模型版本</dt><dd>{{ forecast.model_version }}</dd></div></dl></div>
           </template>
+          <EventBrief v-else-if="investigationTab === 'brief'" :brief="eventBrief" :loading="briefLoading" :error="briefError" :action-busy="briefActionBusy" :poll-paused="briefPollPaused" :citation-detail="citationDetail" :citation-loading="citationLoading" :citation-error="citationError"
+            @generate="emit('generate-brief')" @retry="emit('retry-brief')" @cancel="emit('cancel-brief')" @refresh="emit('refresh-brief')" @open-citation="citation => emit('open-citation', citation)" @close-citation="emit('close-citation')" />
           <template v-else-if="investigationTab === 'evidence'">
             <div class="evidence-summary"><div><strong>{{ fragments.length }}</strong><span>实测依据</span></div><div><strong>{{ evidence?.forecast_run ? 1 : 0 }}</strong><span>预测运行</span></div><div><strong>{{ snapshotRevision || '—' }}</strong><span>事件修订</span></div></div>
             <dl class="result-facts"><div><dt>依据时点</dt><dd>{{ mineTime(evidence?.snapshot_as_of) }}</dd></div><div><dt>规则版本</dt><dd>{{ evidence?.rules?.rule_version || selectedSnapshot?.rule_version || '—' }}</dd></div><div><dt>规则状态</dt><dd>{{ evidence?.rules?.status === 'team-draft' ? '团队草案' : evidence?.rules?.status || '—' }}</dd></div></dl>

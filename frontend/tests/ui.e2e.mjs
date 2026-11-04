@@ -27,7 +27,11 @@ const modelCatalog = [
 ]
 const reference = { reference_id: 'qa-approved-reference', kind: 'document', source: 'UI验收资料', locator: { page: 1 }, text: '测试条文：核对监测记录。', operation_context: 'field_record' }
 let role, session, actions, advice, calls, pendingChat, taskState, attributionState, forecastRuns, savedSessions, nextEvidenceGate
-function reset(value) { role = value; session = null; actions = []; advice = []; calls = []; pendingChat = false; taskState = 'running'; attributionState = 'completed'; forecastRuns = []; savedSessions = new Map(); nextEvidenceGate = null }
+let briefStatus, briefAttempt, briefAsOf, briefRevision, selectedEventRevision, generateOnTick, eventPresent, nextBriefGate
+function reset(value) {
+  role = value; session = null; actions = []; advice = []; calls = []; pendingChat = false; taskState = 'running'; attributionState = 'completed'; forecastRuns = []; savedSessions = new Map(); nextEvidenceGate = null
+  briefStatus = 'not_started'; briefAttempt = 0; briefAsOf = null; briefRevision = 1; selectedEventRevision = 1; generateOnTick = false; eventPresent = true; nextBriefGate = null
+}
 function forecast(modelId = modelCatalog[0].model_id, version = modelCatalog[0].version) {
   const cutoff = Math.floor(Date.parse(session.as_of) / 300000) * 300000
   const run = { run_id: `qa-forecast-${forecastRuns.length + 1}`, session_id: session.session_id,
@@ -42,9 +46,37 @@ function forecast(modelId = modelCatalog[0].model_id, version = modelCatalog[0].
   return run
 }
 function event() {
-  return { event_id: 'qa-event', session_id: session.session_id, point_id: point.point_id, event_revision: 1,
+  return { event_id: 'qa-event', session_id: session.session_id, source_id: session.source_id, point_id: point.point_id, event_revision: selectedEventRevision,
     start_at: new Date(Date.parse(session.as_of) - 60000).toISOString(), event_type: 'observed_exceedance',
     alert_level: 'red', quality_flags: ['suspected_calibration'] }
+}
+function startBrief() { briefStatus = 'queued'; briefAttempt++; briefAsOf = session.as_of; briefRevision = selectedEventRevision }
+function briefPacket() {
+  const asOf = briefAsOf || session.as_of
+  const observation = { id: 'qa-observation', point_id: point.point_id, source_file_id: 'qa-file', row_number: 11,
+    event_time: asOf, available_at: asOf, raw_value: '0.91', value: 0.91, quality_flags: [] }
+  const snapshot = { ...event(), start_at: new Date(Date.parse(asOf) - 60000).toISOString(), event_revision: briefRevision, revision_as_of: asOf }
+  const citations = [
+    { citation_id: 'E1', kind: 'event', label: '预警事件', reference: { kind: 'event', event_id: 'qa-event', event_revision: briefRevision, revision_as_of: asOf } },
+    { citation_id: 'O1', kind: 'observation', label: '实测监测记录', reference: { kind: 'observation', observation_id: observation.id, ...observation } },
+    { citation_id: 'D1', kind: 'reference', label: '已审核规程 第1页', reference: { kind: 'reference', reference_id: reference.reference_id, entry_id: 'qa-document', version: '1', locator: { page: 1 }, source: reference.source } },
+  ]
+  const steps = [{ call_id: 'brief-evidence', name: 'get_event_evidence', arguments: { event_id: 'qa-event', event_revision: briefRevision },
+    status: briefStatus === 'running' ? 'running' : 'success', elapsed_ms: 12.5 }]
+  const task = briefStatus === 'not_started' ? null : {
+    task_id: `qa-brief-task-${briefAttempt}`, state: briefStatus, kind: 'event_brief', method: 'deepseek', model: 'deepseek-flash',
+    session_id: session.session_id, source_id: session.source_id, event_id: 'qa-event', event_revision: briefRevision, as_of: asOf,
+    final_text: ['completed', 'partial'].includes(briefStatus) ? 'T0触发实测预警，监测记录与事件版本一致。[E1][O1] 参阅已审核资料。[D1]' : briefStatus === 'failed' ? '模型服务暂不可用，已保存读取结果。' : '',
+    tool_steps: briefStatus === 'queued' ? [] : steps, tool_calls: briefStatus === 'queued' ? [] : steps, citations: briefStatus === 'queued' ? [] : citations, evidence_refs: briefStatus === 'queued' ? [] : citations.map(item => item.reference),
+    result_cards: briefStatus === 'queued' ? [] : [
+      { tool: 'get_event_evidence', status: 'success', data: { event_snapshot: snapshot, observation_fragments: [observation], evidence_refs: citations.slice(0, 2).map(item => item.reference), rules: { rule_version: 'qa-draft', observed_red_threshold: 0.8 } } },
+      { tool: 'search_documents', status: 'success', data: [{ ...reference, text: undefined, entry_id: 'qa-document', version: '1', title: '界面验收规程' }] },
+    ], missing_fields: [], usage: {}, error_code: briefStatus === 'failed' ? 'model_service_unavailable' : undefined,
+  }
+  return { event_id: 'qa-event', event_revision: briefRevision, requested_event_revision: selectedEventRevision,
+    session_id: session.session_id, source_id: session.source_id, as_of: asOf, status: briefStatus,
+    stale: briefRevision < selectedEventRevision, task_id: task?.task_id || null, task, attempt: briefAttempt,
+    can_cancel: ['queued', 'running'].includes(briefStatus), can_retry: ['failed', 'partial', 'cancelled'].includes(briefStatus) }
 }
 function candidateAttribution() {
   if (attributionState === 'not_ready') return { status: 'not_ready', causal_status: 'evidence_only',
@@ -107,7 +139,8 @@ async function api(path, request) {
   if (/^\/api\/sessions\/qa-session-\d+\/tick$/.test(path.pathname)) {
     session = { ...session, as_of: body.target_as_of || new Date(Date.parse(session.as_of) + 60000).toISOString() }
     savedSessions.set(session.session_id, session)
-    return { session, status: 'completed', forecasts: [forecast()] }
+    if (generateOnTick && !eventPresent) { eventPresent = true; startBrief() }
+    return { session, status: 'completed', forecasts: [forecast()], events: eventPresent ? [event()] : [], briefs: briefStatus === 'not_started' ? [] : [briefPacket()] }
   }
   if (path.pathname === '/api/observations') return { point_id: path.searchParams.get('point_id'), source_id: session.source_id, as_of: session.as_of,
     unit: path.searchParams.get('point_id') === wind.point_id ? 'source_native' : '%CH4', total: 3,
@@ -116,7 +149,17 @@ async function api(path, request) {
       { event_time: new Date(Date.parse(session.as_of) - 60000).toISOString(), value: null },
       { event_time: new Date(Date.parse(session.as_of) + 60000).toISOString(), value: 9.99 },
     ] }
-  if (path.pathname === '/api/events') return path.searchParams.get('point_id') === wind.point_id ? [] : [event()]
+  if (path.pathname === '/api/events') return !eventPresent || path.searchParams.get('point_id') === wind.point_id ? [] : [event()]
+  if (path.pathname === '/api/events/qa-event/brief/cancel') { briefStatus = 'cancelled'; return briefPacket() }
+  if (path.pathname === '/api/events/qa-event/brief') {
+    if (request.method === 'POST') {
+      if (briefStatus === 'not_started' || body.retry || briefRevision < selectedEventRevision) startBrief()
+      return briefPacket()
+    }
+    const packet = briefPacket(), gate = nextBriefGate; nextBriefGate = null
+    if (gate) await gate
+    return packet
+  }
   if (path.pathname === '/api/rules') return { rule_version: 'qa-draft', status: 'team-draft', source: 'UI验收规则（测试夹具）', observed_red_threshold: 0.8, observed_orange_threshold: 0.65, orange_duration_seconds: 300, forecast_yellow_threshold: 0.65 }
   if (path.pathname === '/api/models') return path.searchParams.get('point_id') === wind.point_id ? [] : modelCatalog.map(m => ({ ...m, source_id: session.source_id, face_id: source.face_id }))
   if (path.pathname === '/api/forecasts' && request.method === 'POST') return forecast(body.model_id, body.version)
@@ -139,6 +182,8 @@ async function api(path, request) {
     return { case: casePacket().case, case_action: actions.at(-1) }
   }
   if (path.pathname === '/api/references/search') return [reference]
+  if (path.pathname === '/api/references/qa-document') return { entry_id: 'qa-document', document_id: 'qa-document', version: '1', title: '界面验收规程', state: 'approved', source: reference.source,
+    fragments: [{ ...reference, entry_id: 'qa-document', version: '1' }] }
   if (path.pathname === '/api/advice') {
     advice.push({ advice_id: 'qa-advice', version: 1, reference_ids: body.reference_ids, items: [reference] })
     return advice.at(-1)
@@ -208,6 +253,7 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
         assert.deepEqual(submittedForecast.body, { session_id: session.session_id, point_id: point.point_id, model_id: 'QA专业预测', version: 'trained-test-v1' })
         await forecastTable.locator('summary').click()
         await page.getByRole('button', { name: /实测超限/ }).click()
+        assert.equal(await page.getByRole('tab', { name: '研判简报', exact: true }).count(), 1, '事件工作区提供主动研判简报')
         await curve.getByText('trained-test-v1', { exact: true }).first().waitFor()
         assert.equal(calls.findLast(call => call.path === '/api/evidence').query.event_revision, '1', '依据查询绑定事件修订')
         const attributionCard = page.getByRole('region', { name: '溯源结果', exact: true })
@@ -355,6 +401,83 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
         assert.equal(calls.filter(call => call.path === '/api/forecasts' && call.method === 'POST').length, runCount, '恢复已有结果无需再次运行')
         assert.equal(await page.getByRole('combobox', { name: '数据源', exact: true }).inputValue(), source.source_id)
       } finally { releaseEvidence(); await context.close() }
+    })
+    await t.test('new event brief polls real steps, opens citations and preserves retry scope', async () => {
+      reset('safety_management'); generateOnTick = true; eventPresent = false
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+      let releaseBrief = () => {}
+      let releaseUiEvidence = () => {}
+      try {
+        const page = await context.newPage()
+        page.setDefaultTimeout(6000)
+        await page.clock.install()
+        const errors = []; page.on('pageerror', error => errors.push(error.message))
+        await page.goto(url)
+        await page.locator('[name="username"]').fill('qa-only-user')
+        await page.locator('[name="password"]').fill('qa-only-password-for-test')
+        await page.getByRole('button', { name: /^登录工作台/ }).click()
+        await page.getByRole('heading', { name: 'TEST-UI 工作面', exact: true }).waitFor()
+        await page.getByRole('button', { name: '创建会话', exact: true }).click()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        assert.equal(calls.filter(call => call.path.endsWith('/brief') && call.method === 'POST').length, 0)
+        nextEvidenceGate = new Promise(resolveGate => { releaseUiEvidence = resolveGate })
+        await page.getByRole('button', { name: '前进 60 秒 →', exact: true }).click()
+        const briefPanel = page.getByRole('region', { name: '研判简报', exact: true })
+        await briefPanel.getByText('排队中', { exact: true }).waitFor()
+        assert.ok(await page.locator('.loading-note').count(), '慢速原始依据仍在读取时简报状态已显示')
+        releaseUiEvidence()
+        assert.equal(calls.filter(call => call.path.endsWith('/brief') && call.method === 'POST').length, 0, '新预警由服务端触发简报，前端不重复付费提交')
+        briefStatus = 'running'
+        await page.clock.runFor(1100)
+        const steps = briefPanel.getByRole('region', { name: '工具调用过程', exact: true })
+        await steps.getByText('1. 读取事件依据', { exact: true }).waitFor()
+        await steps.getByText('执行中', { exact: true }).waitFor()
+        briefStatus = 'completed'
+        await page.clock.runFor(1100)
+        await briefPanel.getByRole('button', { name: '正文依据 E1', exact: true }).waitFor()
+        await steps.getByText('耗时 12.5 ms', { exact: true }).waitFor()
+        await briefPanel.getByRole('button', { name: '打开依据 O1', exact: true }).click()
+        const citation = briefPanel.getByRole('region', { name: '引用依据', exact: true })
+        await citation.getByRole('cell', { name: '0.91', exact: true }).first().waitFor()
+        assert.ok((await citation.innerText()).includes('qa-file'))
+        await citation.getByRole('button', { name: '关闭依据', exact: true }).click()
+        await briefPanel.getByRole('button', { name: '打开依据 D1', exact: true }).click()
+        await citation.getByText(reference.text, { exact: true }).waitFor()
+        assert.equal(calls.findLast(call => call.path === '/api/references/qa-document').query.version, '1', '资料引用打开冻结版本')
+        await citation.getByRole('button', { name: '关闭依据', exact: true }).click()
+        await mkdir(artifactDir, { recursive: true })
+        await page.screenshot({ path: resolve(artifactDir, 'event-brief-completed.png'), fullPage: true })
+        selectedEventRevision = 2
+        await page.getByRole('button', { name: '刷新监测', exact: true }).click()
+        await briefPanel.getByText('基于第1版 · 当前第2版', { exact: true }).waitFor()
+        assert.equal(calls.filter(call => call.path.endsWith('/brief') && call.method === 'POST').length, 0, '普通修订复用已有简报')
+        await briefPanel.getByRole('button', { name: '生成当前版本', exact: true }).click()
+        assert.equal(calls.findLast(call => call.path.endsWith('/brief') && call.method === 'POST').body.event_revision, 2)
+        briefStatus = 'failed'
+        await page.clock.runFor(1100)
+        await briefPanel.getByText('生成失败', { exact: true }).waitFor()
+        await steps.getByText('1. 读取事件依据', { exact: true }).waitFor()
+        await briefPanel.getByRole('button', { name: '重试简报', exact: true }).click()
+        assert.equal(calls.findLast(call => call.path.endsWith('/brief') && call.method === 'POST').body.retry, true)
+        await briefPanel.getByRole('button', { name: '取消简报', exact: true }).click()
+        await briefPanel.getByText('已取消', { exact: true }).first().waitFor()
+        assert.ok(calls.some(call => call.path.endsWith('/brief/cancel')))
+        await briefPanel.getByRole('button', { name: '重试简报', exact: true }).click()
+        nextBriefGate = new Promise(resolveGate => { releaseBrief = resolveGate })
+        await Promise.all([
+          page.waitForRequest(request => request.url().includes('/brief?')),
+          briefPanel.getByRole('button', { name: '刷新简报', exact: true }).click(),
+        ])
+        await page.getByRole('combobox', { name: '监测点', exact: true }).selectOption(wind.point_id)
+        releaseBrief()
+        await page.getByRole('heading', { name: '工况趋势', exact: true }).waitFor()
+        await page.waitForFunction(() => !document.querySelector('.loading-note'))
+        const reads = calls.filter(call => call.path.endsWith('/brief') && call.method === 'GET').length
+        await page.clock.runFor(5100)
+        assert.equal(calls.filter(call => call.path.endsWith('/brief') && call.method === 'GET').length, reads, '切测点后停止旧简报轮询')
+        assert.equal(await briefPanel.count(), 0, '迟到简报不回写工况页面')
+        assert.deepEqual(errors, [])
+      } finally { releaseBrief(); releaseUiEvidence(); await context.close() }
     })
   } finally { await browser.close(); await new Promise(resolveClose => server.close(resolveClose)) }
 })

@@ -121,6 +121,8 @@ class AgentService:
 
     def cancel_task(self, actor: Actor, task_id: str) -> dict:
         task = self._get_task(actor, task_id)
+        if task.get("task_type") == "event_brief":
+            raise DomainError("事件简报请通过简报入口取消", code="forbidden", status_code=403)
         if task["state"] == "cancelled":
             return self._public(task)
         if task["state"] in ("completed", "failed"):
@@ -150,6 +152,8 @@ class AgentService:
         question, task_id = self._message(message)
         if task_id:
             task = self._get_task(context.actor, task_id)
+            if task.get("task_type") == "event_brief":
+                raise DomainError("事件简报请通过简报入口生成或重试", code="forbidden", status_code=403)
             if (task["session_id"] != context.session_id or task["source_id"] != context.source_id
                     or datetime.fromisoformat(task["as_of"]) > context.as_of):
                 raise DomainError("任务与当前会话或时钟不一致", code="forbidden", status_code=403)
@@ -177,7 +181,7 @@ class AgentService:
                 "available_models": available_models, "available_points": available_points,
             }, ensure_ascii=False)}]
             history = [item for item in self.store.list("task")
-                       if item["actor_id"] == context.actor.user_id and item["session_id"] == context.session_id
+                       if item.get("task_type") != "event_brief" and item["actor_id"] == context.actor.user_id and item["session_id"] == context.session_id
                        and item["source_id"] == context.source_id and item["state"] in ("completed", "partial")
                        and datetime.fromisoformat(item.get("conversation_as_of", item["as_of"])) <= context.as_of]
             for turn in sorted(history, key=lambda item: item["created_at"])[-6:]:
