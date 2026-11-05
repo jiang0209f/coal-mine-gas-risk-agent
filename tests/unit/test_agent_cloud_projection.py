@@ -243,3 +243,9 @@ def test_restore_text_replaces_only_known_standalone_aliases_and_survives_reload
     assert projection.restore_text("P1，[E1] AP1X P10 E999") == "private-point，[private-event] AP1X P10 E999"
     loaded = RealDataProjection(context, deepcopy(task), projection.services, projection.points, projection.models)
     assert loaded.restore_text("point_id=P1") == "point_id=private-point"
+
+
+def test_restore_text_renders_virtual_timestamps_as_relative_session_time(parts):
+    projection = parts[0]
+    text = "区间2000-01-01 23:00至2000-01-02T00:00:00+00:00；2000-01-02 00:01:30；2026-11-05 12:00；法规2000-01-01；2000-02-30 12:00"
+    assert projection.restore_text(text) == "区间会话当前时刻前60分钟至会话当前时刻；会话当前时刻后90秒；2026-11-05 12:00；法规2000-01-01；2000-02-30 12:00"

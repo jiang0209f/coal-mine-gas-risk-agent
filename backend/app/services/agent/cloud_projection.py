@@ -374,5 +374,20 @@ class RealDataProjection:
         return {}
 
     def restore_text(self, text):
+        def relative_time(match):
+            try:
+                value = datetime.fromisoformat(match[0].replace("Z", "+00:00"))
+                offset = (value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value) - _CLOCK
+            except ValueError:
+                return match[0]
+            seconds = int(offset.total_seconds())
+            if abs(seconds) > 366 * 86400:
+                return match[0]
+            if not seconds:
+                return "会话当前时刻"
+            amount = f"{abs(seconds) // 60}分钟" if seconds % 60 == 0 else f"{abs(seconds)}秒"
+            return "会话当前时刻" + ("前" if seconds < 0 else "后") + amount
+
+        text = re.sub(r"(?<![0-9])(?:1999|2000|2001)-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(?::[0-9]{2})?(?:Z|[+-][0-9]{2}:[0-9]{2})?(?![0-9])", relative_time, text)
         return re.sub(r"(?<![A-Za-z0-9_])(?:REF\d+|[PERM]\d+)(?![A-Za-z0-9_])",
                       lambda match: self.bindings["aliases"].get(match[0], match[0]), text)
