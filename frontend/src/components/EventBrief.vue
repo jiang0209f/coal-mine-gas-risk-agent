@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { briefCitations, briefTextParts } from '../briefs.mjs'
 import { mineTime } from '../utils.mjs'
+import { assistantChannel } from '../assistant.mjs'
 
 const props = defineProps({ brief: Object, loading: Boolean, error: String, actionBusy: Boolean, pollPaused: Boolean,
   citationDetail: Object, citationLoading: Boolean, citationError: String })
@@ -31,7 +32,7 @@ const detailIntervals = computed(() => {
   <p v-if="brief?.stale" class="brief-version">基于第{{ brief.event_revision }}版 · 当前第{{ brief.requested_event_revision }}版</p>
   <p v-else-if="brief?.event_revision" class="brief-version">事件第 {{ brief.event_revision }} 版</p>
   <p v-if="brief?.as_of" class="brief-meta">数据截止 {{ mineTime(brief.as_of) }}</p>
-  <p v-if="task" class="brief-meta">{{ task.model || (task.method === 'deepseek' ? 'DeepSeek' : '本地结构化结果') }}<span v-if="brief.attempt"> · 第 {{ brief.attempt }} 次任务</span></p>
+  <p v-if="task" class="brief-meta">{{ assistantChannel(task) === 'DeepSeek' ? task.model : assistantChannel(task) === '本机查询' ? '本机依据' : '业务查询' }}<span v-if="brief.attempt"> · 第 {{ brief.attempt }} 次任务</span></p>
   <p v-if="error" class="brief-message warning">{{ error }}</p>
   <p v-if="pollPaused" class="brief-message">任务仍在后台执行，可刷新查看进度。</p>
   <div v-if="parts.length" class="brief-text"><template v-for="(part,index) in parts" :key="index"><button v-if="part.citation" class="inline-citation" :aria-label="`正文依据 ${part.citation.citation_id}`" @click="emit('open-citation', part.citation)">{{ part.text }}</button><span v-else>{{ part.text }}</span></template></div>

@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { createRequestGuard } from '../workspace.mjs'
 import { referenceLocation, referenceValidity } from '../knowledge.mjs'
 import { chinaInputToIso, mineTime } from '../utils.mjs'
+import { presentationEnabled } from '../presentation.mjs'
+import { prepareReferenceDownload } from '../assistant.mjs'
 
 const props = defineProps({ api: Function, entries: Array, faceId: String, sourceId: String, session: Object, safety: Boolean })
 const emit = defineEmits(['refresh', 'notice', 'error'])
@@ -113,10 +115,10 @@ async function openReference(reference) {
 }
 async function download() {
   await act(async () => {
-    const file = fileMetadata.value
-    const blob = await props.api(`/references/files/${encodeURIComponent(file.file_id)}/content`, { responseType: 'blob' })
+    const { blob, filename } = await prepareReferenceDownload({ presentation: presentationEnabled,
+      document: detail.value, file: fileMetadata.value, api: props.api })
     const url = URL.createObjectURL(blob), anchor = document.createElement('a')
-    anchor.href = url; anchor.download = file.filename; anchor.click(); URL.revokeObjectURL(url)
+    anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url)
   })
 }
 function close() { detailRequests.invalidate(); detail.value = null; fileMetadata.value = null; loading.value = false }
@@ -125,7 +127,7 @@ function close() { detailRequests.invalidate(); detail.value = null; fileMetadat
 <template>
   <div class="knowledge-workspace">
     <section class="panel">
-      <div class="section-heading"><div><h2>资料库</h2><p>按工作面查阅资料版本、审核状态和原文。</p></div><button class="secondary small" :disabled="working" @click="emit('refresh')">刷新资料</button></div>
+      <div class="section-heading"><div><h2>资料库</h2></div><button class="secondary small" :disabled="working" @click="emit('refresh')">刷新资料</button></div>
       <label class="state-filter">审核状态<select v-model="stateFilter"><option value="">全部状态</option><option value="pending_review">待审核</option><option value="approved">已批准</option><option value="rejected">已拒绝</option><option value="superseded">已替代</option></select></label>
       <article v-for="entry in entries" :key="`${entry.entry_id}:${entry.version}`" class="document-row">
         <div class="document-name"><strong>{{ entry.title || (entry.kind === 'experience' ? '处置经验' : '资料') }}</strong><small>{{ entry.source }} · 版本 {{ entry.version }}<span v-if="entry.fragment_count"> · {{ entry.fragment_count }}个片段</span></small></div>
@@ -135,13 +137,13 @@ function close() { detailRequests.invalidate(); detail.value = null; fileMetadat
     <section v-if="loading || detail" class="panel original-panel" role="region" aria-label="资料原文">
       <div class="section-heading"><div><h2>{{ detail?.title || (detail?.kind === 'experience' ? '处置经验' : '资料原文') }}</h2><p v-if="detail">{{ detail.source }} · 版本 {{ detail.version }}</p></div><button class="ghost small" @click="close">关闭原文</button></div>
       <p v-if="loading" class="muted">正在读取原文。</p>
-      <template v-if="detail"><span class="tag" :class="detail.state === 'approved' ? 'teal' : 'amber'">{{ names[detail.state] }}</span><span v-if="referenceValidity(detail) !== 'current'" class="tag amber">{{ effectiveNames[referenceValidity(detail)] }}</span><p v-if="detail.applicability?.valid_from || detail.applicability?.valid_to" class="muted">适用时间：{{ detail.applicability.valid_from ? mineTime(detail.applicability.valid_from) : '未设起点' }} 至 {{ detail.applicability.valid_to ? mineTime(detail.applicability.valid_to) + '（不含）' : '未设截止' }}</p><div v-if="fileMetadata" class="file-summary"><span>{{ fileMetadata.filename }} · {{ fileMetadata.size_bytes < 1024 ? fileMetadata.size_bytes + '字节' : (fileMetadata.size_bytes / 1024).toFixed(1) + ' KiB' }}</span><button class="secondary small" :disabled="working" @click="download">下载原件</button><small>文件校验值 {{ fileMetadata.sha256 }}</small></div>
+      <template v-if="detail"><span class="tag" :class="detail.state === 'approved' ? 'teal' : 'amber'">{{ names[detail.state] }}</span><span v-if="referenceValidity(detail) !== 'current'" class="tag amber">{{ effectiveNames[referenceValidity(detail)] }}</span><p v-if="detail.applicability?.valid_from || detail.applicability?.valid_to" class="muted">适用时间：{{ detail.applicability.valid_from ? mineTime(detail.applicability.valid_from) : '未设起点' }} 至 {{ detail.applicability.valid_to ? mineTime(detail.applicability.valid_to) + '（不含）' : '未设截止' }}</p><div v-if="fileMetadata" class="file-summary"><span>{{ fileMetadata.filename }} · {{ fileMetadata.size_bytes < 1024 ? fileMetadata.size_bytes + '字节' : (fileMetadata.size_bytes / 1024).toFixed(1) + ' KiB' }}</span><button class="secondary small" :disabled="working" @click="download">{{ presentationEnabled ? '下载摘录' : '下载原件' }}</button><small>文件校验值 {{ fileMetadata.sha256 }}</small></div>
         <article v-for="fragment in detail.fragments || []" :key="fragment.reference_id" class="original-fragment"><strong>{{ referenceLocation(fragment.locator) }}</strong><p>{{ fragment.text }}</p></article>
         <div v-if="detail.reviewer_id || detail.reviewed_by || detail.reviewed_at" class="review-record"><h3>审核记录</h3><p>{{ names[detail.state] }} · {{ detail.reviewer_id || detail.reviewed_by }} · {{ mineTime(detail.reviewed_at) }}</p><p v-if="detail.review_comment">{{ detail.review_comment }}</p></div>
         <form v-if="safety && detail.state === 'pending_review'" class="review-form" @submit.prevent="review('approved')"><label>审核说明<textarea v-model="reviewComment" rows="2"></textarea></label><div class="button-group"><button class="primary small" :disabled="working || referenceValidity(detail) !== 'current'">{{ detail.kind === 'experience' ? '批准经验' : '批准资料' }}</button><button type="button" class="ghost small" :disabled="working" @click="review('rejected')">{{ detail.kind === 'experience' ? '拒绝经验' : '拒绝资料' }}</button></div></form>
       </template>
     </section>
-    <section class="panel"><div class="section-heading"><div><h2>已批准资料检索</h2><p>按问题检索现行条文，查看来源、排序依据和条文分歧。</p></div></div>
+    <section class="panel"><div class="section-heading"><div><h2>已批准资料检索</h2></div></div>
       <form class="search-form" @submit.prevent="find"><input v-model="search" aria-label="资料检索关键词" placeholder="输入问题或条款编号"><button class="primary" :disabled="!session || working">检索</button><button type="button" class="secondary" :disabled="!session || !search.trim() || publicBusy" @click="askPublic">{{ publicBusy ? '正在解读' : '解读公开条文' }}</button></form>
       <p class="muted">DeepSeek只接收公开法规标准条文；提问内容用于本机检索。</p>
       <p v-if="results[0]?.knowledge_as_of" class="muted">资料核验时点：{{ mineTime(results[0].knowledge_as_of) }}</p><p v-if="!session" class="muted">选择会话后检索适用资料。</p>

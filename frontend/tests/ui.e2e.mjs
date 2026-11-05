@@ -317,7 +317,7 @@ async function api(path, request) {
     advice.push({ advice_id: 'qa-advice', version: 1, event_revision: selectedEventRevision, knowledge_as_of: reference.knowledge_as_of, data_as_of: session.as_of, reference_ids: body.reference_ids, items: [reference] })
     return advice.at(-1)
   }
-  if (path.pathname === '/api/chat') return { task_id: 'qa-task', state: pendingChat ? 'running' : 'completed', final_text: pendingChat ? '' : 'UI验收：工具任务已完成，数据截止当前会话时点。', brief_method: 'structured_template' }
+  if (path.pathname === '/api/chat') return { task_id: 'qa-task', state: pendingChat ? 'running' : 'completed', final_text: pendingChat ? '' : 'UI验收：工具任务已完成，数据截止当前会话时点。', method: 'structured_template', tool_steps: pendingChat ? [] : [{ name: 'query_series', status: 'success', elapsed_ms: 6, arguments: { point_id: point.point_id } }] }
   if (path.pathname === '/api/tasks/qa-task/cancel') { taskState = 'cancelled'; return { task_id: 'qa-task', state: taskState } }
   if (path.pathname === '/api/tasks/qa-task') return { task_id: 'qa-task', state: taskState, final_text: taskState === 'cancelled' ? 'UI验收：任务已取消。' : '' }
   throw new Error(`测试夹具未定义接口 ${path.pathname}`)
@@ -370,6 +370,8 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
         await page.locator('[name="password"]').fill('qa-only-password-for-test')
         await page.getByRole('button', { name: /^登录工作台/ }).click()
         await page.getByRole('heading', { name: 'TEST-UI 工作面', exact: true }).waitFor()
+        await page.locator('.assistant-heading .tag').getByText('业务查询', { exact: true }).waitFor()
+        assert.equal(await page.getByText('调用实际工具 · 引用可查依据', { exact: true }).count(), 0)
         await page.getByRole('button', { name: '创建会话', exact: true }).click()
         assert.equal(await page.getByRole('region', { name: '综合态势', exact: true }).count(), 1, '正式工作台采用综合态势布局')
         assert.equal(await page.getByRole('combobox', { name: '预测模型', exact: true }).count(), 1, '预测模型可选择')
@@ -482,6 +484,11 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
           await page.getByRole('textbox', { name: '向风险管控助手提问' }).fill('UI验收问题')
           await page.getByRole('button', { name: '发送 ↑', exact: true }).click()
           await page.getByText('UI验收：工具任务已完成，数据截止当前会话时点。', { exact: true }).waitFor()
+          await page.locator('.assistant-heading .tag').getByText('本机查询', { exact: true }).waitFor()
+          assert.equal(await page.getByText(/结构化模板/).count(), 0)
+          await page.getByText('工具调用记录', { exact: true }).click()
+          await page.locator('.chat-tool-steps').getByText('查询监测序列', { exact: true }).waitFor()
+          assert.equal(await page.locator('.chat-message details pre').count(), 0)
           assert.equal(calls.find(call => call.path === '/api/chat').body.async_execution, true)
           pendingChat = true
           await page.getByRole('textbox', { name: '向风险管控助手提问' }).fill('UI验收取消任务')
@@ -491,7 +498,7 @@ test('headless UI acceptance with isolated API fixtures', { timeout: 90000 }, as
           await page.getByText('UI验收：任务已取消。', { exact: true }).waitFor()
           assert.ok(calls.some(call => call.path === '/api/tasks/qa-task/cancel'))
           await page.getByRole('button', { name: /模型与评估/ }).click()
-          await page.getByText('离线基线', { exact: true }).waitFor()
+          await page.getByText('基线模型', { exact: true }).waitFor()
           await page.getByRole('button', { name: /监测与预警/ }).click()
           await page.clock.runFor(100)
           const chartBounds = await page.getByRole('img', { name: '当前测点实测与预测曲线', exact: true }).evaluate(element => ({ parent: element.clientWidth, canvas: element.querySelector('canvas')?.clientWidth }))

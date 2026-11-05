@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { createApiClient } from './api.mjs'
+import { presentationEnabled } from './presentation.mjs'
+import { assistantChannel, toolName, toolState, toolArguments } from './assistant.mjs'
 import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, queryString } from './utils.mjs'
 import { contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, isActiveEvent, latestVisibleReading, modelKey, needsEvidenceReview, replayStart, sessionModelKey, sessionMonitorLabel } from './workspace.mjs'
 import { briefCitations, briefMatches, briefScopeKey, localCitationDetail, shouldPollBrief } from './briefs.mjs'
@@ -60,7 +62,7 @@ const chosenAdvice = computed(() => adviceOptions.value.find(item => `${item.adv
 const chosenAdviceStale = computed(() => adviceIsStale(caseResult.value, chosenAdvice.value))
 const caseAction = (action, checkBusy = true) => canCaseAction(action, { packet: caseResult.value, advice: chosenAdvice.value, roles: user.value?.roles, content: caseContent.value, busy: checkBusy && Boolean(busy.value) })
 const operationContext = computed(() => active.value?.mode === 'realtime' ? 'field_record' : 'rehearsal')
-const api = createApiClient({ getToken: () => token.value, onUnauthorized: clearLogin })
+const api = createApiClient({ getToken: () => token.value, onUnauthorized: clearLogin, presentation: presentationEnabled })
 const post = (path, body) => api(path, { method: 'POST', body })
 const list = value => Array.isArray(value) ? value : []
 const pretty = value => JSON.stringify(value, null, 2)
@@ -69,7 +71,7 @@ const qualityLabel = flag => qualityNames[flag] || flag
 function clearLogin() {
   sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate()
   pollVersion++
-  token.value = ''; user.value = null; active.value = null; chatBusy.value = false
+  token.value = ''; user.value = null; active.value = null; chatBusy.value = false; chatTask.value = null
   sources.value = []; sessions.value = []; points.value = []; messages.value = []; refs.value = []; reports.value = []; evaluationListRequests.invalidate(); referenceListRequests.invalidate(); clearMonitor()
 }
 async function run(label, callback) {
@@ -123,7 +125,7 @@ async function changeSource() {
   const previousPoint = pointId.value
   clearMonitor(); points.value = []; pointId.value = ''; coverage.value = null; startTime.value = ''
   if (active.value?.source_id !== requestedSource) active.value = null
-  pollVersion++; chatBusy.value = false; messages.value = []
+  pollVersion++; chatBusy.value = false; chatTask.value = null; messages.value = []
   const results = requestedSource ? await Promise.allSettled([
     api(`/points?${queryString({ source_id: requestedSource })}`),
     api(`/sources/${encodeURIComponent(requestedSource)}/coverage`),
@@ -154,7 +156,7 @@ async function createSession() {
     const result = await post('/sessions', { source_id: requestedSource, mode: mode.value, start_as_of: mode.value === 'realtime' ? new Date().toISOString() : chinaInputToIso(startTime.value) })
     if (!sourceRequests.isCurrent(request) || sourceId.value !== requestedSource) return
     active.value = result
-    sessions.value = list(await api('/sessions')); messages.value = []; pollVersion++; chatBusy.value = false
+    sessions.value = list(await api('/sessions')); messages.value = []; pollVersion++; chatBusy.value = false; chatTask.value = null
     await refreshWorkspace()
   })
 }
@@ -163,7 +165,7 @@ async function selectSession(event) {
   if (!id) return
   await run('加载会话', async () => {
     const request = sourceRequests.begin()
-    pollVersion++; chatBusy.value = false; messages.value = []; clearMonitor(); active.value = null
+    pollVersion++; chatBusy.value = false; chatTask.value = null; messages.value = []; clearMonitor(); active.value = null
     const result = await api(`/sessions/${encodeURIComponent(id)}`)
     if (!sourceRequests.isCurrent(request)) return
     active.value = result
@@ -281,7 +283,7 @@ async function restartReplay() {
   await run('创建关联回放', async () => {
     const requestedSource = sourceId.value, request = sourceRequests.begin()
     const spec = replaySessionSpec(active.value, chinaInputToIso(replayTime.value))
-    clearMonitor(); pollVersion++; chatBusy.value = false; messages.value = []
+    clearMonitor(); pollVersion++; chatBusy.value = false; chatTask.value = null; messages.value = []
     const result = await post('/sessions', spec)
     if (!sourceRequests.isCurrent(request) || sourceId.value !== requestedSource) return
     active.value = result
@@ -522,7 +524,7 @@ async function sendChat() {
     }
     if (version !== pollVersion) return
     chatTask.value = task
-    messages.value.push({ role: 'assistant', text: task.final_text || task.answer || task.message || `任务状态：${states[task.state] || task.state}`, state: task.state, task_id: task.task_id, method: task.brief_method, steps: task.tool_steps })
+    messages.value.push({ role: 'assistant', text: task.final_text || task.answer || task.message || `任务状态：${states[task.state] || task.state}`, state: task.state, task_id: task.task_id, method: task.method || task.brief_method, model: task.model, steps: task.tool_steps })
   } catch (caught) { if (version === pollVersion) messages.value.push({ role: 'assistant', text: caught.message, state: 'failed' }) }
   finally { if (version === pollVersion) chatBusy.value = false }
 }
@@ -563,7 +565,7 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
   <div v-else class="app-shell">
     <aside class="sidebar"><div class="brand"><span class="brand-icon">煤</span><div>采面安全<small>瓦斯风险工作台</small></div></div><p class="nav-caption">工作空间</p><nav><button :class="{ active: tab === 'monitor' }" @click="tab = 'monitor'"><span>◫</span>监测与预警</button><button :class="{ active: tab === 'knowledge' }" @click="tab = 'knowledge'"><span>▤</span>资料与依据</button><button :class="{ active: tab === 'cases' }" @click="tab = 'cases'"><span>☑</span>处置与复核</button><button :class="{ active: tab === 'evaluation' }" @click="tab = 'evaluation'"><span>▥</span>模型与评估</button><button :class="{ active: tab === 'ingestion' }" @click="tab = 'ingestion'"><span>⇄</span>现场接入</button></nav><div class="sidebar-bottom"><span class="dot"></span>本地工作台<small>界面时间：矿区时间 UTC+8</small><button class="logout" @click="logout">退出登录</button></div></aside>
     <div class="workspace"><header class="topbar"><div><span class="breadcrumb">安全风险管控 / </span>{{ { monitor: '监测与预警', knowledge: '资料与依据', cases: '处置与复核', evaluation: '模型与评估', ingestion: '现场接入' }[tab] }}</div><div class="user-chip"><span class="avatar">{{ (user.username || '用').slice(0, 1).toUpperCase() }}</span><div>{{ user.username || user.user_id }}<small>{{ user.roles.map(role => roles[role] || role).join(' / ') }}</small></div></div></header>
-      <div class="page-body"><div class="page-heading"><div><p class="eyebrow">工作面监测与处置</p><h1>{{ source?.face_id ? `${source.face_id} 工作面` : '选择工作面数据源' }}</h1><p class="muted">{{ active ? '当前时点可见数据与事件，按来源逐项回查。' : '选择数据源并创建会话，开始查看监测数据。' }}</p></div><button class="secondary" :disabled="!active || !!busy" @click="run('刷新数据', refreshWorkspace)">↻ 刷新</button></div>
+      <div class="page-body"><div class="page-heading"><div><p class="eyebrow">工作面监测与处置</p><h1>{{ source?.face_id ? `${source.face_id} 工作面` : '选择工作面数据源' }}</h1></div><button class="secondary" :disabled="!active || !!busy" @click="run('刷新数据', refreshWorkspace)">↻ 刷新</button></div>
       <div v-if="error" class="notice error" role="alert">{{ error }}<button @click="error = ''" aria-label="关闭错误">×</button></div><div v-if="notice" class="notice success" role="status">{{ notice }}<button @click="notice = ''" aria-label="关闭通知">×</button></div><div v-if="busy" class="loading-note" role="status">{{ busy }}…</div>
       <section class="context-panel panel"><div class="context-selects"><label>数据源<select v-model="sourceId" @change="run('加载数据源', changeSource)"><option value="" disabled>请选择</option><option v-for="item in sources" :key="item.source_id" :value="item.source_id">{{ item.name || item.source_id }}</option></select></label><label>监测点<select v-model="pointId" @change="choosePoint"><option value="" disabled>请选择</option><option v-for="item in points" :key="item.point_id" :value="item.point_id">{{ item.name || item.source_tag || item.point_id }}</option></select></label><label>已有会话<select :value="active?.session_id || ''" @change="selectSession"><option value="">选择已有会话</option><option v-for="item in sessions" :key="item.session_id" :value="item.session_id">{{ mineTime(item.as_of, false) }} · {{ states[item.state] || item.state }}</option></select></label></div>
         <p v-if="coverage" class="coverage-note muted">历史数据范围 {{ mineTime(coverage.start_at, false) }} — {{ mineTime(coverage.end_at, false) }} · {{ Number(coverage.observation_count || 0).toLocaleString() }} 条观测 · {{ coverage.points?.length || points.length }} 个测点</p>
@@ -615,16 +617,17 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
       </template>
       <IngestionWorkspace v-if="tab === 'ingestion'" :api="api" :safety="safety" :source-id="sourceId" :source="source" :points="points" :session-id="active?.session_id" @error="message => error = message" @notice="message => notice = message" />
       <template v-if="tab === 'evaluation'">
-        <section class="panel"><div class="section-heading"><div><h2>已登记模型</h2><p>按当前会话数据源与监测点显示。</p></div></div><div v-if="!models.length" class="empty-state"><span>◈</span><p>{{ active ? '当前点位暂无已登记模型' : '选择会话后查看模型状态' }}</p></div><article v-for="model in models" :key="`${model.model_id}:${model.version}`" class="model-card"><div><strong>{{ model.name || model.model_id }}</strong><span class="tag" :class="model.model_type === 'baseline' ? 'amber' : 'teal'">{{ model.model_type === 'baseline' ? '离线基线' : '已登记专业模型' }}</span></div><p>{{ model.model_type === 'baseline' ? '用于离线流程验证。' : '是否可运行由输入完整性与适配器状态决定。' }}</p><small>版本 {{ model.version }} · 输入 {{ model.input_window }} 个时间桶 · 预测时长 {{ model.horizon_seconds }} 秒</small></article></section>
+        <section class="panel"><div class="section-heading"><div><h2>已登记模型</h2></div></div><div v-if="!models.length" class="empty-state"><span>◈</span><p>{{ active ? '当前点位暂无已登记模型' : '选择会话后查看模型状态' }}</p></div><article v-for="model in models" :key="`${model.model_id}:${model.version}`" class="model-card"><div><strong>{{ model.name || model.model_id }}</strong><span class="tag" :class="model.model_type === 'baseline' ? 'amber' : 'teal'">{{ model.model_type === 'baseline' ? '基线模型' : '专业模型' }}</span><span v-if="model.deployment_stage === 'experimental'" class="tag amber">实验模型</span></div><small>版本 {{ model.version }} · 输入 {{ model.input_window }} 个时间桶 · 预测时长 {{ model.horizon_seconds }} 秒</small></article></section>
         <EvaluationWorkspace :api="api" :safety="safety" :session="active" :source-id="sourceId" :points="points" :point-id="pointId" :models="models" :selected-model="selectedModel" :reports="reports" @created="acceptReport" @refresh="run('读取评估报告', loadReports)" @error="message => error = message" @notice="message => notice = message" />
       </template>
-      </main><aside class="assistant-panel panel"><div class="assistant-heading"><span class="assistant-symbol">✦</span><div><h2>风险管控助手</h2><small>调用实际工具 · 引用可查依据</small></div><span class="tag teal">DeepSeek</span></div><div class="assistant-context"><span class="dot"></span>{{ active ? `已绑定 ${source?.face_id || ''} 工作面会话` : '等待选择会话' }}</div><div class="chat-messages" aria-live="polite"><div v-if="!messages.length" class="assistant-welcome"><span>✦</span><h3>围绕当前数据时点提问</h3><p>可查询监测片段、预警事件、资料条文和处置进度。</p><button v-for="question in ['当前有哪些预警事件？','查看当前点位最近一小时的监测数据','这次事件有哪些可回查依据？']" :key="question" :disabled="!active" @click="chatInput = question">{{ question }} ↗</button></div><article v-for="(message,index) in messages" :key="index" class="chat-message" :class="message.role"><span class="message-label">{{ message.role === 'user' ? '我' : '风险管控助手' }}</span><p>{{ message.text }}</p><small v-if="message.state">{{ states[message.state] || message.state }}{{ message.method === 'structured_template' ? ' · 结构化模板' : '' }}</small><details v-if="message.steps?.length"><summary>工具调用记录</summary><pre>{{ pretty(message.steps) }}</pre></details></article><div v-if="chatBusy" class="chat-thinking"><span>{{ chatTask?.state ? (states[chatTask.state] || chatTask.state) : '正在提交任务' }}…</span><button v-if="chatTask?.task_id" class="ghost small" :disabled="!!busy || !['running','queued'].includes(chatTask.state)" @click="cancelChat">取消任务</button></div></div><form class="chat-form" @submit.prevent="sendChat"><textarea v-model="chatInput" rows="3" :disabled="!active" placeholder="向助手提问…" aria-label="向风险管控助手提问" @keydown.ctrl.enter.prevent="sendChat"></textarea><div><small>{{ active ? '围绕当前会话回答' : '请先创建会话' }}</small><button class="primary small" :disabled="!active || !chatInput.trim() || chatBusy">{{ chatBusy ? '处理中' : '发送 ↑' }}</button></div></form></aside></div>
+      </main><aside class="assistant-panel panel"><div class="assistant-heading"><span class="assistant-symbol">✦</span><div><h2>风险管控助手</h2></div><span class="tag teal">{{ assistantChannel(chatTask) }}</span></div><div class="assistant-context"><span class="dot"></span>{{ active ? `已绑定 ${source?.face_id || ''} 工作面会话` : '等待选择会话' }}</div><div class="chat-messages" aria-live="polite"><div v-if="!messages.length" class="assistant-welcome"><span>✦</span><h3>业务查询</h3><button v-for="question in ['当前有哪些预警事件？','查看当前点位最近一小时的监测数据','这次事件有哪些可回查依据？']" :key="question" :disabled="!active" @click="chatInput = question">{{ question }} ↗</button></div><article v-for="(message,index) in messages" :key="index" class="chat-message" :class="message.role"><span class="message-label">{{ message.role === 'user' ? '我' : '风险管控助手' }}</span><p>{{ message.text }}</p><small v-if="message.state">{{ states[message.state] || message.state }} · {{ assistantChannel(message) }}</small><details v-if="message.steps?.length"><summary>工具调用记录</summary><ol class="chat-tool-steps"><li v-for="(step,stepIndex) in message.steps" :key="step.call_id || stepIndex"><strong>{{ toolName(step.name) }}</strong> · {{ toolState(step.status) }}<small v-if="Number.isFinite(step.elapsed_ms)"> · {{ step.elapsed_ms }} ms</small><p v-if="toolArguments(step.arguments)">{{ toolArguments(step.arguments) }}</p></li></ol></details></article><div v-if="chatBusy" class="chat-thinking"><span>{{ chatTask?.state ? (states[chatTask.state] || chatTask.state) : '正在提交任务' }}…</span><button v-if="chatTask?.task_id" class="ghost small" :disabled="!!busy || !['running','queued'].includes(chatTask.state)" @click="cancelChat">取消任务</button></div></div><form class="chat-form" @submit.prevent="sendChat"><textarea v-model="chatInput" rows="3" :disabled="!active" placeholder="向助手提问…" aria-label="向风险管控助手提问" @keydown.ctrl.enter.prevent="sendChat"></textarea><div><small>{{ active ? '当前会话' : '请先创建会话' }}</small><button class="primary small" :disabled="!active || !chatInput.trim() || chatBusy">{{ chatBusy ? '处理中' : '发送 ↑' }}</button></div></form></aside></div>
       </div><footer class="page-footer">采煤工作面瓦斯超限预测及溯源管控智能体 <span>{{ active ? `${active.mode === 'realtime' ? '现场接入' : '演练回放'} · 数据时间 ${mineTime(active.as_of)}` : '尚未选择会话' }}</span></footer>
     </div>
   </div>
 </template>
 
 <style scoped>
+.chat-tool-steps{padding-left:18px;margin:8px 0;font-size:12px;line-height:1.7}.chat-tool-steps li{margin-bottom:8px;overflow-wrap:anywhere}.chat-tool-steps strong{font-weight:500}.chat-tool-steps p{margin:2px 0;color:#91abc2}
 .replay-toolbar{display:flex;align-items:flex-start;flex-wrap:wrap;gap:14px;margin:0 0 16px;padding:11px 15px;background:#0e263b;border:1px solid #25445a;border-radius:5px;font-size:12px}.replay-speed{display:flex;align-items:center;gap:10px;margin:0;white-space:nowrap}.replay-speed select{margin:0;width:85px;padding:5px 8px}.replay-toolbar>details{flex:1;min-width:220px;max-width:100%;padding-top:5px}.replay-toolbar summary{cursor:pointer;color:#8ecbdb}.replay-controls{display:flex;gap:10px;align-items:flex-end;margin-top:12px;flex-wrap:wrap}.replay-controls>label{margin:0;flex:1;min-width:190px}.replay-controls input{min-width:0;max-width:100%}.replay-controls button{margin-bottom:1px}@media(max-width:760px){.replay-toolbar{gap:9px}.replay-toolbar>details{flex-basis:100%;min-width:0}.replay-controls>label{min-width:0;flex-basis:100%}}
 .case-reference-option{border-bottom:1px solid #29465b;padding-bottom:12px;margin-bottom:12px}.case-reference-option .reference-select{margin-bottom:4px}.case-original article{margin-top:12px;padding:12px;background:#102b40;border:1px solid #294a62;border-radius:4px}.case-original article strong{font-size:12px;color:#8acddc}.case-original article p{white-space:pre-wrap;line-height:1.9;margin:7px 0 0;overflow-wrap:anywhere}.advice-items button{display:block;margin-top:5px}.case-archive dl{display:grid;gap:8px;margin:16px 0;font-size:13px}.case-archive dl>div{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px}.case-archive dt{color:#90adc4}.case-archive dd{margin:0;overflow-wrap:anywhere}
 @media(max-width:760px){.case-archive dl>div{grid-template-columns:82px minmax(0,1fr)}}

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "test": "node --test tests/workspace.test.mjs",
+    "test": "node --test tests/workspace.test.mjs tests/presentation.test.mjs tests/copy-text.test.mjs",
     "test:e2e": "node --test tests/ui.e2e.mjs",
     "check": "npm test && npm run build && npm run test:e2e",
     "build": "vite build && node scripts/verify-dist.mjs",
