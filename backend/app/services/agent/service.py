@@ -15,6 +15,8 @@ from app.adapters.deepseek import DeepSeekAdapter, DeepSeekRequestError
 from app.config import Settings
 from app.db import Store
 from app.schemas.common import Actor, DomainError, ExecutionContext, now_utc, utcstr
+from app.services.agent.cloud_projection import RealDataProjection
+from app.services.agent.disclosure import record_disclosure
 
 __all__ = ["AgentService"]
 
@@ -111,6 +113,8 @@ class AgentService:
         public = deepcopy(task)
         public.pop("messages", None)
         public.pop("context", None)
+        public.pop("_cloud_bindings", None)
+        public.pop("_cloud_messages", None)
         for card in public.get("result_cards", []):
             if card.get("tool") == "search_documents" and isinstance(card.get("data"), list):
                 card["data"] = [{key: value for key, value in fragment.items() if key != "text"}
@@ -357,7 +361,7 @@ class AgentService:
                 pending.extend(value.values())
         return found
 
-    def _tool(self, task: dict, context: ExecutionContext, call: dict) -> dict:
+    def _tool(self, task: dict, context: ExecutionContext, call: dict, projection=None) -> dict:
         started = perf_counter()
         function = call.get("function", {})
         name = function.get("name", "")
@@ -370,6 +374,10 @@ class AgentService:
                 raise DomainError("工具参数长度或类型无效", code="invalid_tool_arguments")
             arguments = json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(ValueError("nonfinite")))
             self._validators[name].validate(arguments)
+            if projection is not None:
+                resolved = projection.decode_call(call)
+                arguments = json.loads(resolved["function"]["arguments"])
+                self._validators[name].validate(arguments)
             audit["arguments"] = arguments
             result = self._execute(context, name, arguments)
             payload = {"status": "success", "data": result}
@@ -581,18 +589,24 @@ class AgentService:
         if current["state"] == "cancelled":
             return current
         was_local = task.pop("local_reason", None)
-        if context.source_id not in self.settings.event_brief_allowed_source_ids:
+        real_summary = (self.settings.agent_real_data_mode == "summary"
+                        and context.source_id in self.settings.agent_real_source_ids)
+        if not real_summary and context.source_id not in self.settings.event_brief_allowed_source_ids:
             task["local_reason"] = "cloud_source_not_authorized"
             return self._template(task, context)
         if not self.settings.deepseek_configured:
+            if real_summary:
+                task.update(method="deepseek", state="failed", error_code="deepseek_not_configured",
+                            final_text="DeepSeek尚未配置，本次API任务未执行。")
+                return self._save(task)
             return self._template(task, context)
-        if was_local or not self._cloud_history_safe(context, task):
+        if not real_summary and (was_local or not self._cloud_history_safe(context, task)):
             systems = [message for message in task["messages"] if message.get("role") == "system"][:1]
             users = [message for message in task["messages"] if message.get("role") == "user"][-1:]
             task["messages"] = systems + users
             task["cloud_reference_ids"] = []
             task["cloud_card_start"] = len(task.get("result_cards", []))
-        task["cloud_public_policy_version"] = 1
+        task["cloud_public_policy_version"] = None if real_summary else 1
         task["method"] = "deepseek"
         adapter = None
         started = perf_counter()
@@ -600,7 +614,16 @@ class AgentService:
         question = next((message["content"] for message in reversed(task["messages"]) if message["role"] == "user"), task["question"])
         required = self._required_query_tool(question)
         forced, tool_choice = False, "auto"
+        projection = None
         try:
+            if real_summary:
+                task["_cloud_bindings"] = {}
+                model_catalog = getattr(self.services.get("prediction"), "list_models", None)
+                models = model_catalog(context) if callable(model_catalog) else []
+                models = [model for model in models if model.get("source_id", context.source_id) == context.source_id]
+                projection = RealDataProjection(context, task, self.services, self._local_points(context), models)
+                task["_cloud_messages"] = projection.messages(question)
+                task["cloud_data_mode"] = "summary"
             adapter = self.adapter_factory(self.settings)
             for round_index in range(5):
                 current = self.store.get("task", task["task_id"])
@@ -609,10 +632,19 @@ class AgentService:
                 if perf_counter() - started >= 60:
                     task["error_code"] = "tool_time_budget_exceeded"
                     break
-                if not self._cloud_history_safe(context, task):
+                if projection is not None:
+                    if self.settings.agent_real_data_mode != "summary" or context.source_id not in self.settings.agent_real_source_ids:
+                        task.update(state="partial", error_code="cloud_source_not_authorized",
+                                    final_text="API数据授权已变化，已保存完成的业务结果。")
+                        return self._save(task)
+                    projection.validate_public_references()
+                elif not self._cloud_history_safe(context, task):
                     task.update(state="partial", error_code="public_reference_unavailable", final_text="公开引用的授权或有效性已变化，请重新检索当前公开资料。")
                     return self._save(task)
-                response = adapter.chat(deepcopy(task["messages"]), tools=deepcopy(self.tools), tool_choice=tool_choice)
+                outgoing = task["_cloud_messages"] if projection is not None else task["messages"]
+                if projection is not None:
+                    task.setdefault("disclosure_ids",[]).append(record_disclosure(self.store,task,outgoing,self.tools))
+                response = adapter.chat(deepcopy(outgoing), tools=deepcopy(self.tools), tool_choice=tool_choice)
                 tool_choice = "auto"
                 current = self.store.get("task", task["task_id"])
                 if current["state"] == "cancelled":
@@ -628,21 +660,34 @@ class AgentService:
                     text = answer.get("content")
                     if not isinstance(text, str) or not text.strip():
                         raise ValueError("empty response")
-                    verified = any(call["name"] == required and call["status"] == "success" for call in task["tool_calls"][call_start:])
-                    if required and not verified:
+                    unverified_aliases = set()
+                    if projection is not None:
+                        known = {reference["reference_id"] for card in task["result_cards"][card_start:]
+                                 if card.get("status") == "success" for reference in self._references(card.get("data"))
+                                 if reference.get("reference_id")}
+                        bindings = task["_cloud_bindings"]["aliases"]
+                        unverified_aliases = {alias for alias in re.findall(r"(?<![A-Za-z0-9_])REF\d+(?![A-Za-z0-9_])", text)
+                                              if bindings.get(alias) not in known}
+                        text = projection.restore_text(text)
+                    verified = any((call["name"] == required or required is None) and call["status"] == "success"
+                                   for call in task["tool_calls"][call_start:])
+                    if (required or projection is not None) and not verified:
                         if not forced and round_index < 4 and len(task["tool_calls"]) < 12:
                             forced = True
-                            tool_choice = {"type": "function", "function": {"name": required}}
+                            tool_choice = {"type": "function", "function": {"name": required or "query_events"}}
                             continue
                         task.update(state="partial", error_code="required_tool_result_missing",
                                     final_text="本次业务查询缺少成功的工具结果，已保存完成的结果卡，请重试或查看对应业务页面。")
-                        task["missing_fields"] = list(dict.fromkeys([*task["missing_fields"], required+"_result"]))
+                        task["missing_fields"] = list(dict.fromkeys([*task["missing_fields"], (required or "business_tool")+"_result"]))
                         return self._save(task)
-                    if self._unverified_references(text, task["result_cards"][card_start:]):
+                    if unverified_aliases or self._unverified_references(text, task["result_cards"][card_start:]):
                         task.update(state="partial", error_code="unverified_reference_id",
                                     final_text="本次回答的资料引用未通过核对，已保存实际工具结果和引用，请查看结果卡或重试。")
                         task["missing_fields"] = list(dict.fromkeys([*task["missing_fields"], "verified_reference_ids"]))
                         return self._save(task)
+                    if projection is not None:
+                        task["_cloud_messages"].append(deepcopy(answer))
+                        answer["content"] = text
                     task["messages"].append(answer)
                     task["final_text"] = text
                     task["state"] = "partial" if task["missing_fields"] or any(item["status"] == "error" for item in task["tool_calls"]) else "completed"
@@ -651,15 +696,22 @@ class AgentService:
                 over_budget = len(calls) > remaining
                 answer["tool_calls"] = calls[:remaining]
                 task["messages"].append(answer)
+                if projection is not None:
+                    task["_cloud_messages"].append(deepcopy(answer))
                 for call in calls[:remaining]:
                     if self.store.get("task", task["task_id"])["state"] == "cancelled":
                         return self.store.get("task", task["task_id"])
-                    response_payload = self._tool(task, context, call)
+                    response_payload = self._tool(task, context, call, projection=projection)
                     content = json.dumps(response_payload, ensure_ascii=False, allow_nan=False)
-                    if len(content) > 30000:
+                    if projection is None and len(content) > 30000:
                         content = json.dumps({"status": response_payload["status"], "truncated": True,
                                               "result_card_index": len(task["result_cards"]) - 1, "preview": content[:25000]}, ensure_ascii=False)
                     task["messages"].append({"role": "tool", "tool_call_id": call["id"], "content": content})
+                    if projection is not None:
+                        bounded = projection.project(call["function"]["name"], response_payload)
+                        task["_cloud_messages"].append({"role": "tool", "tool_call_id": call["id"],
+                            "content": json.dumps(bounded, ensure_ascii=False, allow_nan=False)})
+                        task["_cloud_bindings"] = projection.bindings
                     task = self._save(task)
                 if over_budget or len(task["tool_calls"]) >= 12:
                     task["error_code"] = "tool_budget_exceeded"
@@ -668,6 +720,10 @@ class AgentService:
                 task["error_code"] = "tool_round_budget_exceeded"
             task["state"] = "partial"
             task["final_text"] = "已保存已完成的工具结果；本次调用达到执行上限。"
+            return self._save(task)
+        except DomainError as error:
+            task.update(state="partial", error_code=error.code,
+                        final_text="API任务的引用或授权校验未通过，已保存完成的业务结果。")
             return self._save(task)
         except DeepSeekRequestError as error:
             task["state"] = "failed"

@@ -34,6 +34,9 @@ def build_services(configuration):
     from app.services.agent.service import AgentService
     from app.services.agent.briefs import EventBriefsService
     from app.services.agent.public_knowledge import PublicKnowledgeService
+    from app.services.traceability.evidence_tools import EvidenceToolsService
+    from app.services.investigation.service import InvestigationService
+    from app.services.control.service import ControlService
 
     runtime = configuration.runtime_dir.resolve()
     runtime.mkdir(parents=True, exist_ok=True)
@@ -63,8 +66,12 @@ def build_services(configuration):
     s["evaluation"] = EvaluationService(store)
     s["agent"] = AgentService(store, s, configuration)
     s["event_briefs"] = EventBriefsService(store, s, configuration)
+    s["evidence_tools"] = EvidenceToolsService(store, s)
+    s["investigation"] = InvestigationService(store, s, configuration)
+    s["control"] = ControlService(store, s)
     s["agent"].recover_interrupted()
     s["event_briefs"].recover_interrupted()
+    s["investigation"].recover_interrupted()
     s["runner"] = SessionRunner(s)
     s["realtime_monitor"] = RealtimeMonitor(s)
     s["evaluation_collector"] = SessionEvaluationCollector(store, s)
@@ -91,12 +98,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         monitor = (asyncio.create_task(run_realtime_monitor(application.state.services["realtime_monitor"],
                        stop, monitor_status, configuration.realtime_monitor_interval_seconds))
                    if configuration.realtime_monitor_enabled else None)
+        async def control_worker():
+            while not stop.is_set():
+                try:
+                    await asyncio.to_thread(application.state.services["control"].process_pending_effects)
+                except Exception:
+                    application.state.control_worker_error = "effect_scan_failed"
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=5)
+                except TimeoutError:
+                    pass
+        control = asyncio.create_task(control_worker()) if configuration.control_worker_enabled else None
         try:
             yield
         finally:
             stop.set()
             try:
-                jobs = [job for job in (worker, monitor) if job is not None]
+                jobs = [job for job in (worker, monitor, control) if job is not None]
                 if jobs:
                     await asyncio.gather(*jobs, return_exceptions=True)
             finally:
@@ -126,6 +144,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     from app.api.routes import router
     application.include_router(router)
+    from app.api.workflow_routes import router as workflow_router
+    application.include_router(workflow_router)
     frontend = PROJECT_ROOT / "frontend" / "dist"
     if frontend.is_dir():
         application.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")

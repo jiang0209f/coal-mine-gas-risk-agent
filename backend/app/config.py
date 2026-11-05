@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import os
+from typing import Literal
 
 from pydantic import AnyHttpUrl, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -41,6 +42,10 @@ class Settings(BaseSettings):
     deepseek_max_tokens: int = Field(default=512, gt=0)
     # Shared by chat and briefs; retained name for config compatibility. Synthetic isolated sources only.
     event_brief_allowed_source_ids: list[str] = Field(default_factory=list)
+    # Explicit, independent consent for bounded real-source summaries.
+    agent_real_source_ids: list[str] = Field(default_factory=list)
+    agent_real_data_mode: Literal["disabled", "summary"] = "disabled"
+    control_worker_enabled: bool = True
 
     @field_validator("knowledge_reranker_model_dir", mode="before")
     @classmethod

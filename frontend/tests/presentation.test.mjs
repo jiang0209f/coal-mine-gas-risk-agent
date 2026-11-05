@@ -67,6 +67,20 @@ test('anonymous mode refuses binary originals before requesting their content', 
   assert.equal(calls, 0)
 })
 
+test('anonymous mode downloads only the presentation investigation DOCX and preserves session scope', async () => {
+  let seen
+  const api = createApiClient({ presentation: true, aliases, fetchImpl: async url => {
+    seen = url
+    return new Response('presentation-docx', { headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' } })
+  } })
+  const blob = await api('/investigations/report-id/report.docx?session_id=scope-FACE-A&presentation=false', { responseType: 'blob' })
+  assert.equal(await blob.text(), 'presentation-docx')
+  assert.equal(seen, '/api/investigations/report-id/report.docx?session_id=scope-12345&presentation=true')
+  for (const path of ['/investigations/report-id/report.docx.extra', '/investigations/report-id/report.pdf', '/references/files/file/content']) {
+    await assert.rejects(api(path, { responseType: 'blob' }), /原件/)
+  }
+})
+
 test('anonymous report download has an explicit display projection and its own verifiable digest', async () => {
   const original = { report_sha256: 'original-frozen-digest', projection_sha256: 'original-export-digest', report: { face_id: '12345', text: '某某煤矿12345工作面' } }
   const api = createApiClient({ presentation: true, aliases, fetchImpl: async () => jsonResponse(original) })

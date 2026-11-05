@@ -4,7 +4,15 @@ export function createApiClient({ getToken = () => '', onUnauthorized = () => {}
   const policy = presentation ? createPresentationPolicy(aliases ?? configuredPresentationAliases()) : null
   return async (path, { method = 'GET', body, signal, responseType } = {}) => {
     const anonymousExport = Boolean(policy && responseType === 'blob' && /^\/evaluations\/[^/]+\/export(?:\?|$)/.test(path))
-    if (policy && responseType === 'blob' && !anonymousExport) throw new Error('展示副本提供资料摘录，请从资料页下载摘录。原件保存在本机资料库。')
+    const anonymousInvestigation = Boolean(policy && responseType === 'blob' && /^\/investigations\/[^/?]+\/report\.docx(?:\?|$)/.test(path))
+    if (policy && responseType === 'blob' && !anonymousExport && !anonymousInvestigation) throw new Error('展示副本提供资料摘录，请从资料页下载摘录。原件保存在本机资料库。')
+    if (anonymousInvestigation) {
+      const separator = path.indexOf('?')
+      const pathname = separator < 0 ? path : path.slice(0, separator)
+      const query = new URLSearchParams(separator < 0 ? '' : path.slice(separator + 1))
+      query.set('presentation', 'true')
+      path = `${pathname}?${query}`
+    }
     const headers = new Headers({ Accept: 'application/json' })
     const token = getToken()
     if (token) headers.set('Authorization', `Bearer ${token}`)

@@ -32,7 +32,9 @@ class SessionRunner:
             store.put("event_brief_trigger", key, claim, connection)
         # The claim is committed before scheduling; model work never holds its transaction.
         try:
-            brief = self.services["event_briefs"].submit(context, event["event_id"],
+            investigation = self.services.get("investigation")
+            handler = investigation if investigation is not None and investigation.enabled(context) else self.services["event_briefs"]
+            brief = handler.submit(context, event["event_id"],
                 event_revision=event["event_revision"], schedule=schedule)
             reference = {name: brief.get(name) for name in ("event_id", "event_revision", "task_id", "status")}
         except Exception:

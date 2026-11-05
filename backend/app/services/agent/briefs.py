@@ -10,6 +10,8 @@ from uuid import uuid4
 
 from app.adapters.deepseek import DeepSeekRequestError
 from app.schemas.common import DomainError, ExecutionContext, now_utc, utcstr
+from app.services.agent.cloud_projection import RealDataProjection
+from app.services.agent.disclosure import record_disclosure
 
 __all__ = ["EventBriefsService"]
 
@@ -34,6 +36,14 @@ _SYSTEM = (
     "no_matches才可说检索未命中；matched按实际条文引用；failed说明查询未完成。"
     "缺少已审核规程时说明资料缺项，只列核实事项，不生成现场处置指令。"
     "使用已有预测结果，不运行预测，不创建建议草稿或人工动作。"
+)
+_SUMMARY_SYSTEM = (
+    "针对当前事件生成最多300字的中文研判简报，按事实、候选工况、待核实事项组织。"
+    "仅使用给定工具结果；聚类概率表示候选分组。所有日期使用虚拟时钟，只陈述相对时长。"
+    "每项事实引用给定citations中的[E1]等编号，不得发明引用或确定成因。"
+    "资料状态not_queried表示尚未检索，no_matches表示检索未命中，failed表示查询未完成。"
+    "本机私有资料正文未提供时，不得推断其条文内容。"
+    "只读取当前事件依据、已有预测、公开条文及处置阶段，不创建建议或人工动作。"
 )
 
 
@@ -82,8 +92,21 @@ class EventBriefsService:
 
     def _key(self, context, event):
         identity = [context.session_id, context.source_id, event["event_id"], event["event_revision"],
-                    _VERSION, self.settings.deepseek_model]
+                    _VERSION, self.settings.deepseek_model, self._cloud_policy(context)]
         return hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    def _cloud_policy(self, context):
+        if (getattr(self.settings, "agent_real_data_mode", "disabled") == "summary"
+                and context.source_id in getattr(self.settings, "agent_real_source_ids", [])):
+            return "real-summary-v1"
+        if context.source_id in self.settings.event_brief_allowed_source_ids:
+            return "synthetic-v1"
+        return "local-only-v1"
+
+    @staticmethod
+    def _cloud_citations(task):
+        return [{"citation_id": item["citation_id"], "kind": item["kind"]}
+                for item in task["citations"]]
 
     @staticmethod
     def _can_manage(context, task):
@@ -109,6 +132,7 @@ class EventBriefsService:
                        if item["session_id"] == context.session_id and item["source_id"] == context.source_id
                        and item["event_id"] == event_id and item["event_revision"] <= event["event_revision"]
                        and item.get("prompt_version") == _VERSION and item.get("model") == self.settings.deepseek_model
+                       and item.get("cloud_policy", "synthetic-v1") == self._cloud_policy(context)
                        and item["event_snapshot"]["alert_level"] == event["alert_level"]
                        and datetime.fromisoformat(item["event_snapshot"]["revision_as_of"]) <= context.as_of]
             entry = max(visible, key=lambda item: (item["event_revision"], item["created_at"])) if visible else None
@@ -144,7 +168,7 @@ class EventBriefsService:
             entry = dict(event_id=event_id, event_revision=event["event_revision"], event_snapshot=deepcopy(event),
                 session_id=context.session_id, source_id=context.source_id, task_id=task["task_id"],
                 attempt=previous["attempt"]+1 if previous else 1, created_at=created,
-                prompt_version=_VERSION, model=self.settings.deepseek_model)
+                prompt_version=_VERSION, model=self.settings.deepseek_model, cloud_policy=self._cloud_policy(context))
             self.store.put("task", task["task_id"], task, connection)
             self.store.put("event_brief", key, entry, connection)
         if schedule is not None:
@@ -324,6 +348,7 @@ class EventBriefsService:
             self.store.put("task",task_id,task,connection)
         context=ExecutionContext(**task["context"])
         adapter=None
+        projection=None
         started=perf_counter()
         try:
             evidence=self._step(task,context,"get_event_evidence",dict(event_id=task["event_id"]),"brief-evidence")
@@ -335,12 +360,28 @@ class EventBriefsService:
             if not self.settings.deepseek_configured:
                 task.update(state="failed",error_code="deepseek_not_configured",final_text="DeepSeek尚未配置，事件依据已保存。")
                 return self.agent._public(self.agent._save(task))
-            if context.source_id not in self.settings.event_brief_allowed_source_ids:
+            policy = self._cloud_policy(context)
+            if policy == "local-only-v1":
                 task.update(state="failed",error_code="cloud_source_not_authorized",
                             final_text="该来源仅在本机处理，已保存本地工具结果和依据。")
                 return self.agent._public(self.agent._save(task))
-            task["messages"]=[dict(role="system",content=_SYSTEM),dict(role="user",content=json.dumps(_redact(dict(
-                event_facts=evidence["data"],citations=task["citations"],document_search_state=task["document_search_state"])),ensure_ascii=False))]
+            if policy == "real-summary-v1":
+                point_catalog = getattr(self.services.get("data"), "list_points", None)
+                model_catalog = getattr(self.services.get("prediction"), "list_models", None)
+                points = point_catalog(context.actor, context.source_id) if callable(point_catalog) else []
+                models = model_catalog(context) if callable(model_catalog) else []
+                projection = RealDataProjection(context, task, self.services, points, models)
+                facts = projection.project("get_event_evidence", {
+                    "status": "success", "data": task["result_cards"][-1]["data"]})
+                task["messages"] = projection.messages("生成预警研判简报")
+                task["messages"][0]["content"] += "\n" + _SUMMARY_SYSTEM
+                task["messages"].append(dict(role="user", content=json.dumps(dict(
+                    event_facts=facts, citations=self._cloud_citations(task),
+                    document_search_state=task["document_search_state"]), ensure_ascii=False)))
+                task["cloud_data_mode"] = "summary"
+            else:
+                task["messages"]=[dict(role="system",content=_SYSTEM),dict(role="user",content=json.dumps(_redact(dict(
+                    event_facts=evidence["data"],citations=task["citations"],document_search_state=task["document_search_state"])),ensure_ascii=False))]
             adapter=self.agent.adapter_factory(self.settings)
             tools=[tool for tool in self.agent.tools if tool["function"]["name"] in _TOOLS]
             for _ in range(5):
@@ -349,6 +390,12 @@ class EventBriefsService:
                 if perf_counter()-started>=60:
                     task.update(state="partial",error_code="tool_time_budget_exceeded",final_text="已保存工具结果，简报达到本次时间上限。")
                     break
+                if projection is not None:
+                    if self._cloud_policy(context) != "real-summary-v1":
+                        task.update(state="partial",error_code="cloud_source_not_authorized",final_text="该来源的API摘要授权已变化，已保存本机工具结果。")
+                        break
+                    projection.validate_public_references()
+                    task.setdefault("disclosure_ids",[]).append(record_disclosure(self.store,task,task["messages"],tools))
                 response=adapter.chat(deepcopy(task["messages"]),tools=deepcopy(tools),tool_choice="auto")
                 if self._cancelled(task):
                     return self.agent._public(self.store.get("task",task_id))
@@ -373,16 +420,34 @@ class EventBriefsService:
                         return self.agent._public(self.store.get("task",task_id))
                     function=call.get("function",{})
                     try:
-                        arguments=json.loads(function.get("arguments","{}"))
+                        decoded = projection.decode_call(call) if projection is not None else call
+                        arguments=json.loads(decoded.get("function",{}).get("arguments","{}"))
+                    except DomainError as error:
+                        task["tool_calls"].append(dict(call_id=call["id"],name=function.get("name",""),
+                            status="error",error_code=error.code,elapsed_ms=0))
+                        result=dict(status="error",error_code=error.code)
+                        self.agent._save(task)
                     except (ValueError,TypeError):
                         arguments={}
-                    result=self._step(task,context,function.get("name",""),arguments,call["id"])
-                    task["messages"].append(dict(role="tool",tool_call_id=call["id"],content=json.dumps(_redact(dict(**result,citations=task["citations"],document_search_state=task["document_search_state"])),ensure_ascii=False)))
+                        result=self._step(task,context,function.get("name",""),arguments,call["id"])
+                    else:
+                        result=self._step(task,context,function.get("name",""),arguments,call["id"])
+                    if projection is not None:
+                        if result["status"] == "success":
+                            result = dict(status="success", data=task["result_cards"][-1]["data"])
+                        result=projection.project(function.get("name",""),result)
+                        citations=self._cloud_citations(task)
+                    else:
+                        citations=task["citations"]
+                    task["messages"].append(dict(role="tool",tool_call_id=call["id"],content=json.dumps(_redact(dict(**result,citations=citations,document_search_state=task["document_search_state"])),ensure_ascii=False)))
                 if len(calls)>remaining or len(task["tool_calls"])>=12:
                     task.update(state="partial",error_code="tool_budget_exceeded",final_text="已保存工具结果，简报达到本次工具调用上限。")
                     break
             else:
                 task.update(state="partial",error_code="tool_round_budget_exceeded",final_text="已保存工具结果，简报达到本次调用轮数上限。")
+        except DomainError as error:
+            task.update(state="partial",error_code=error.code,
+                        final_text="简报的引用或授权校验未通过，已保存本机工具结果和依据。")
         except DeepSeekRequestError as error:
             task.update(state="failed",error_code="model_service_unavailable" if error.status_code in (429,503) else "model_service_failed",
                         final_text="DeepSeek暂未完成简报，已保存工具结果和依据，可重试。")

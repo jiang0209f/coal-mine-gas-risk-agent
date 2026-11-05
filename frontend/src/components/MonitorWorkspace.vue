@@ -7,6 +7,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { mineTime, seriesToPoints } from '../utils.mjs'
 import { isActiveEvent, needsEvidenceReview } from '../workspace.mjs'
 import EventBrief from './EventBrief.vue'
+import EventWorkflow from './EventWorkflow.vue'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, CanvasRenderer])
 const props = defineProps({
@@ -18,6 +19,7 @@ const props = defineProps({
   busy: [String, Boolean], eventLoading: Boolean, forecastLoading: Boolean, forecastError: String,
   eventBrief: Object, briefLoading: Boolean, briefError: String, briefActionBusy: Boolean, briefPollPaused: Boolean, briefFocusToken: Number,
   citationDetail: Object, citationLoading: Boolean, citationError: String,
+  api: Function, userRoles: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['select-point', 'select-event', 'select-model', 'run-forecast', 'clear-event', 'open-case', 'refresh', 'generate-brief', 'retry-brief', 'cancel-brief', 'refresh-brief', 'open-citation', 'close-citation'])
 const investigationTab = ref('analysis')
@@ -185,7 +187,7 @@ onBeforeUnmount(() => { resizeObserver?.disconnect(); chart?.dispose() })
 
       <section class="monitor-panel investigation-panel" aria-label="事件研判">
         <header class="monitor-panel-head"><h2>智能研判</h2><span :class="['monitor-chip', evidenceReview ? 'warning' : selectedEvent?.alert_level]">{{ evidenceReview ? '补传后依据待核' : selectedEvent ? `${levels[selectedEvent.alert_level] || ''}事件` : '待选事件' }}</span></header>
-        <div class="investigation-tabs" role="tablist" aria-label="事件研判内容"><button v-for="item in [{ id: 'analysis', label: '研判结论' }, { id: 'brief', label: '研判简报' }, { id: 'evidence', label: '原始依据' }, { id: 'case', label: '人工处置' }]" :key="item.id" role="tab" :aria-selected="investigationTab === item.id" :class="{ active: investigationTab === item.id }" @click="investigationTab = item.id">{{ item.label }}</button></div>
+        <div class="investigation-tabs" role="tablist" aria-label="事件研判内容"><button v-for="item in [{ id: 'analysis', label: '研判结论' }, { id: 'brief', label: '研判简报' }, { id: 'investigation', label: '溯源' }, { id: 'control', label: '管控' }, { id: 'evidence', label: '原始依据' }, { id: 'case', label: '人工处置' }]" :key="item.id" role="tab" :aria-selected="investigationTab === item.id" :class="{ active: investigationTab === item.id }" @click="investigationTab = item.id">{{ item.label }}</button></div>
         <div v-if="eventLoading && investigationTab !== 'brief'" class="investigation-body monitor-empty" role="status">正在读取事件依据与溯源结果…</div>
         <div v-else-if="!selectedEvent" class="investigation-body investigation-welcome"><div class="investigation-symbol">◈</div><h3>选择事件查看研判</h3><dl><div><dt>监测来源</dt><dd>{{ source?.face_id || '—' }} 工作面</dd></div><div><dt>可见事件</dt><dd>{{ events.length }} 条</dd></div></dl><button class="monitor-button" :disabled="!session || !!busy" @click="emit('refresh')">刷新监测</button></div>
         <div v-else class="investigation-body">
@@ -200,6 +202,7 @@ onBeforeUnmount(() => { resizeObserver?.disconnect(); chart?.dispose() })
           </template>
           <EventBrief v-else-if="investigationTab === 'brief'" :brief="eventBrief" :loading="briefLoading" :error="briefError" :action-busy="briefActionBusy" :poll-paused="briefPollPaused" :citation-detail="citationDetail" :citation-loading="citationLoading" :citation-error="citationError"
             @generate="emit('generate-brief')" @retry="emit('retry-brief')" @cancel="emit('cancel-brief')" @refresh="emit('refresh-brief')" @open-citation="citation => emit('open-citation', citation)" @close-citation="emit('close-citation')" />
+          <EventWorkflow v-else-if="['investigation', 'control'].includes(investigationTab)" :api="api" :session="session" :event="selectedEvent" :mode="investigationTab" :roles="userRoles" />
           <template v-else-if="investigationTab === 'evidence'">
             <div class="evidence-summary"><div><strong>{{ fragments.length }}</strong><span>实测依据</span></div><div><strong>{{ evidence?.forecast_run ? 1 : 0 }}</strong><span>预测运行</span></div><div><strong>{{ snapshotRevision || '—' }}</strong><span>事件修订</span></div></div>
             <dl class="result-facts"><div><dt>依据时点</dt><dd>{{ mineTime(evidence?.snapshot_as_of) }}</dd></div><div><dt>规则版本</dt><dd>{{ evidence?.rules?.rule_version || selectedSnapshot?.rule_version || '—' }}</dd></div><div><dt>规则状态</dt><dd>{{ evidence?.rules?.status === 'team-draft' ? '团队草案' : evidence?.rules?.status || '—' }}</dd></div></dl>
@@ -223,6 +226,7 @@ onBeforeUnmount(() => { resizeObserver?.disconnect(); chart?.dispose() })
 </template>
 
 <style scoped>
+.investigation-tabs{overflow-x:auto;scrollbar-width:thin}.investigation-tabs button{flex:1 0 auto!important}
 .late-evidence-review{margin-bottom:14px;overflow-wrap:anywhere}.late-reference-list{list-style:none;padding:0;margin:12px 0;display:grid;gap:9px}.late-reference-list li{display:grid;gap:3px;font-size:12px;color:#b8cde0}.late-reference-list small{font-size:12px;color:#90acc3}
 .monitor-workspace{--m-bg:#081827;--m-surface:#0d2135;--m-border:#21394f;--m-subtle:#1a3045;--m-text:#e8f0f9;--m-body:#c1d0e2;--m-muted:#8da4bf;--m-accent:#58c8df;color:var(--m-text);display:grid;grid-template-rows:88px minmax(0,1fr);gap:12px;min-width:0;height:clamp(880px,calc(100dvh - 278px),1020px);font-size:14px;line-height:1.5}
 .monitor-summary{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:12px;min-width:0}.summary-card{border:1px solid #244159;border-radius:7px;background:linear-gradient(110deg,#112a42,#0e243a);padding:9px 16px;min-width:0;overflow:hidden}.summary-card>span{display:flex;align-items:center;gap:8px;font-size:12px;color:#9fb4ca;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.summary-card>div{display:flex;align-items:baseline;gap:8px;min-width:0;height:34px;line-height:1}.summary-card strong{font-size:30px;font-weight:500;line-height:34px;font-variant-numeric:tabular-nums}.summary-card strong.status-number{font-size:23px;white-space:nowrap}.summary-card small{color:var(--m-muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.summary-card p{font-size:12px;color:var(--m-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}.current-reading{background:linear-gradient(110deg,#14384b,#10263c);border-color:#2c586b}.current-reading strong{color:#87e0ee}
