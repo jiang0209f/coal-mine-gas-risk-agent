@@ -58,15 +58,15 @@ class DeepSeekAdapter:
             raise DeepSeekConfigurationError(
                 "未配置DEEPSEEK_API_KEY，请在项目根目录.env或环境变量中填写。"
             )
-        self._settings = settings
+        self._settings = settings.model_copy(deep=True)
         self._sleep = sleep
-        self._url = str(settings.deepseek_base_url).rstrip("/") + "/chat/completions"
+        self._url = str(self._settings.deepseek_base_url).rstrip("/") + "/chat/completions"
         self._client = httpx.Client(
             headers={
-                "Authorization": "Bearer " + settings.deepseek_api_key.get_secret_value(),
+                "Authorization": "Bearer " + self._settings.deepseek_api_key.get_secret_value(),
                 "Content-Type": "application/json",
             },
-            timeout=settings.deepseek_timeout_seconds,
+            timeout=self._settings.deepseek_timeout_seconds,
             transport=transport,
             follow_redirects=False,
         )

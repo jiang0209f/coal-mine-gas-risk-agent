@@ -37,12 +37,14 @@ def build_services(configuration):
     from app.services.traceability.evidence_tools import EvidenceToolsService
     from app.services.investigation.service import InvestigationService
     from app.services.control.service import ControlService
+    from app.services.model_connection.service import ModelConnectionService
 
     runtime = configuration.runtime_dir.resolve()
     runtime.mkdir(parents=True, exist_ok=True)
     store = Store(configuration.database_url or f"sqlite+pysqlite:///{(runtime / 'app.db').as_posix()}")
     s = {"store": store, "auth": AuthService(store),
          "sessions": SessionsService(store, realtime_monitor_enabled=configuration.realtime_monitor_enabled)}
+    s["model_connection"] = ModelConnectionService(store, configuration)
     s["data"] = DataService(store, runtime / "imports")
     s["ingestion"] = IngestionService(store, s["data"])
     model_runtime = ModelRuntime(configuration.model_catalog_path)
@@ -146,6 +148,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(router)
     from app.api.workflow_routes import router as workflow_router
     application.include_router(workflow_router)
+    from app.api.model_connection_routes import router as model_connection_router
+    application.include_router(model_connection_router)
     frontend = PROJECT_ROOT / "frontend" / "dist"
     if frontend.is_dir():
         application.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")

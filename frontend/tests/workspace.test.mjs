@@ -14,6 +14,42 @@ test('event deep links select only an explicit session event and read-only workf
   assert.equal(eventDeepLink('?session_id=s&event_id=e&view=approve'), null)
 })
 
+test('model connection metadata excludes credentials and an empty-key save retains the existing key', async () => {
+  const { createModelConnectionClient } = await import('../src/model-connection.mjs')
+  const requests = []
+  const api = createApiClient({ presentation: false, fetchImpl: async (url, options) => {
+    requests.push({ url, ...options })
+    return new Response(JSON.stringify({ provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-flash', configured: true, source: 'environment', local_available: false, api_key: 'NEVER_DISPLAY' }))
+  } })
+  const client = createModelConnectionClient(api)
+  const metadata = await client.load()
+  assert.equal(metadata.configured, true)
+  assert.equal(Object.hasOwn(metadata, 'api_key'), false)
+  await client.save({ base_url: metadata.base_url, model: metadata.model, api_key: '' })
+  assert.equal(requests.length, 2)
+  assert.deepEqual(requests.map(request => request.method), ['GET', 'PUT'])
+  assert.deepEqual(JSON.parse(requests[1].body), { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-flash' })
+})
+
+test('model connection sends a new key only on explicit save and tests through a separate bodyless request', async () => {
+  const { createModelConnectionClient } = await import('../src/model-connection.mjs')
+  const requests = []
+  const api = createApiClient({ presentation: false, fetchImpl: async (url, options) => {
+    requests.push({ url, ...options })
+    return new Response(JSON.stringify(url.endsWith('/test') ? { ok: true, message: '连接成功', model: 'deepseek-flash', latency_ms: 12 } : { provider: 'deepseek', base_url: 'https://api.deepseek.com', model: 'deepseek-flash', configured: true, source: 'saved', local_available: false }))
+  } })
+  const client = createModelConnectionClient(api)
+  await client.save({ base_url: 'https://api.deepseek.com', model: 'deepseek-flash', api_key: ' offline-new-key ' })
+  assert.equal(requests.length, 1)
+  assert.equal(JSON.parse(requests[0].body).api_key, 'offline-new-key')
+  const result = await client.test()
+  assert.equal(result.ok, true)
+  assert.equal(requests[1].url, '/api/model-connection/test')
+  assert.equal(requests[1].method, 'POST')
+  assert.equal(requests[1].body, undefined)
+  assert.equal(requests.some(request => request.url.includes('offline-new-key')), false)
+})
+
 test('session model selection restores the point binding and retains the baseline default for unbound points', async () => {
   const { sessionModelKey } = await import('../src/workspace.mjs')
   const models = [{ model_id: 'baseline', version: 'v1', default_eligible: true }, { model_id: 'professional', version: 'v2', default_eligible: false }]

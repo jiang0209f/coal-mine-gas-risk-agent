@@ -1,6 +1,6 @@
 export const presentationEnabled = import.meta.env?.VITE_PRESENTATION_MODE === 'anonymous'
 
-const protectedFields = new Set(['password', 'password_hash', 'access_token', 'token', 'token_hash', 'authorization', 'raw_value', 'value'])
+const protectedFields = new Set(['password', 'password_hash', 'api_key', 'access_token', 'token', 'token_hash', 'authorization', 'raw_value', 'value'])
 const escapePattern = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 function replacement(entries) {
