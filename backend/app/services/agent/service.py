@@ -124,6 +124,76 @@ class AgentService:
     def get_task(self, actor: Actor, task_id: str) -> dict:
         return self._public(self._get_task(actor, task_id))
 
+    def chat_status(self, context: ExecutionContext) -> dict:
+        source=self._scope(context)
+        configured=self.settings.deepseek_configured
+        allowed=set(self.settings.event_brief_allowed_source_ids)
+        if self.settings.agent_real_data_mode == "summary":
+            allowed.update(self.settings.agent_real_source_ids)
+        sources={row["source_id"]:row for row in self.store.list("source")
+                 if row.get("face_id") in context.actor.face_ids and row["source_id"] in allowed}
+        sessions=[{key:row.get(key) for key in ("session_id","source_id","as_of","mode","created_at")}
+                  | {"source_name":sources[row["source_id"]].get("name",row["source_id"])}
+                  for row in self.store.list("session") if row.get("source_id") in sources]
+        sessions.sort(key=lambda row:(row["source_id"].endswith("-t0"),row.get("created_at") or ""),reverse=True)
+        mode=("not_configured" if not configured else "summary" if context.source_id in self.settings.agent_real_source_ids
+              and self.settings.agent_real_data_mode == "summary" else "synthetic"
+              if context.source_id in self.settings.event_brief_allowed_source_ids else "local_only")
+        return dict(api_configured=configured,general_chat=configured,mode=mode,
+            source_id=context.source_id,source_name=source.get("name",context.source_id),available_sessions=sessions[:12])
+
+    @staticmethod
+    def _general_question(question):
+        if re.search(r"你是谁|你叫什么|你是什么(?:模型|助手|系统)|你是(?:不是)?(?:大模型|机器人|人工智能|AI|ai|人吗|哪个模型)",question):
+            return "identity"
+        if any(word in question for word in ("能做什么","能干什么","有什么功能","你有什么用","介绍一下你","如何使用你","怎么使用你","能帮我做什么")):
+            return "capabilities"
+        if AgentService._required_query_tool(question):
+            return None
+        if re.search(r"你好|您好|能(?:正常)?(?:聊天|说话|回答)|你在吗|有人吗|在干嘛|什么意思|^(?:啊|嗯|在|[?？])$",question):
+            return "conversation"
+        return None
+
+    def _general_answer(self, task, context, intent):
+        # A fixed public question is sent. Source, question, history and tool
+        # results remain local even when the selected data source is restricted.
+        adapter=None
+        prompts={"identity":"请简短介绍你的身份、所用的DeepSeek API和在此工作台中的作用。",
+                 "capabilities":"请简要介绍本工作台助手能提供的帮助和基本使用方法。",
+                 "conversation":"请自然地用中文向用户问好，说明可以正常对话，并邀请用户提出问题。"}
+        messages=[dict(role="system",content="你是煤矿瓦斯风险管控助手，通过DeepSeek API提供对话服务。"
+            "工作台支持监测查询、事件排查、预测工具、知识检索和处置进展查询。"
+            "当前是公开功能咨询，直接回答身份或功能，不要求事件编号，不宣称已查询任何业务数据。"),
+            dict(role="user",content=prompts[intent])]
+        task.update(method="deepseek",chat_scope="general",missing_fields=[])
+        task.pop("local_reason",None)
+        try:
+            if not self.settings.deepseek_configured:
+                task.update(state="failed",error_code="deepseek_not_configured",final_text="当前工作台尚未配置DeepSeek API，通用问答暂不可用。")
+                return self._save(task)
+            task.setdefault("disclosure_ids",[]).append(record_disclosure(self.store,task,messages,[]))
+            adapter=self.adapter_factory(self.settings)
+            response=adapter.chat(deepcopy(messages))
+            text=response.message.get("content")
+            if response.message.get("tool_calls") or not isinstance(text,str) or not text.strip():
+                raise ValueError("general response")
+            task.update(model=response.model,state="completed",final_text=text)
+            task["messages"].append({"role":"assistant","content":text})
+            for key,value in response.usage.items():
+                if key in ("prompt_tokens","completion_tokens","total_tokens") and type(value) is int and value>=0:
+                    task["usage"][key]=task["usage"].get(key,0)+value
+            return self._save(task)
+        except DeepSeekRequestError as error:
+            task.update(state="failed",error_code="model_service_unavailable" if error.status_code in (429,503) else "model_service_failed",
+                        final_text="DeepSeek对话请求未完成，请重试；本次未查询业务数据。")
+            return self._save(task)
+        except Exception:
+            task.update(state="failed",error_code="model_service_failed",final_text="DeepSeek对话请求未完成，请重试。")
+            return self._save(task)
+        finally:
+            if adapter is not None:
+                adapter.close()
+
     def recover_interrupted(self) -> int:
         """End lost in-memory chat work; retrying remains an explicit user action."""
         recovered = 0
@@ -589,11 +659,21 @@ class AgentService:
         if current["state"] == "cancelled":
             return current
         was_local = task.pop("local_reason", None)
+        task["chat_status"]=self.chat_status(context)
+        question=next((message["content"] for message in reversed(task["messages"]) if message["role"]=="user"),task["question"])
+        general=self._general_question(question)
+        if general:
+            return self._general_answer(task,context,general)
         real_summary = (self.settings.agent_real_data_mode == "summary"
                         and context.source_id in self.settings.agent_real_source_ids)
         if not real_summary and context.source_id not in self.settings.event_brief_allowed_source_ids:
             task["local_reason"] = "cloud_source_not_authorized"
-            return self._template(task, context)
+            result=self._template(task, context)
+            if result["state"] == "awaiting_input" and "query_type" in result.get("missing_fields",[]):
+                result.update(error_code="cloud_source_not_authorized",
+                    final_text="当前数据来源尚未启用DeepSeek数据问答。可切换到已授权回放，或在当前会话查询监测、事件和资料；身份与功能咨询可直接使用DeepSeek。")
+                return self._save(result)
+            return result
         if not self.settings.deepseek_configured:
             if real_summary:
                 task.update(method="deepseek", state="failed", error_code="deepseek_not_configured",

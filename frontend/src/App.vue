@@ -1,8 +1,8 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { createApiClient } from './api.mjs'
 import { presentationEnabled } from './presentation.mjs'
-import { assistantChannel, toolName, toolState, toolArguments } from './assistant.mjs'
+import { assistantChannel, assistantMessage, chatDeepLink, chatStatusView, toolName, toolState, toolArguments } from './assistant.mjs'
 import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, queryString } from './utils.mjs'
 import { contextKey, createRequestGuard, displayWindow, eventDeepLink, forecastForEvent, forecastMatches, isActiveEvent, latestVisibleReading, modelKey, needsEvidenceReview, replayStart, sessionModelKey, sessionMonitorLabel } from './workspace.mjs'
 import { briefCitations, briefMatches, briefScopeKey, localCitationDetail, shouldPollBrief } from './briefs.mjs'
@@ -32,11 +32,14 @@ const mappingText = ref('')
 const caseReference = ref(null), caseReferenceLoading = ref(false), experienceContent = ref('')
 const caseReferenceRequests = createRequestGuard(), referenceSearchRequests = createRequestGuard(), referenceListRequests = createRequestGuard()
 const chatInput = ref(''), messages = ref([]), chatBusy = ref(false), chatTask = ref(null)
+const chatStatus = ref(null), chatStatusError = ref('')
+const chatPanel = ref(null)
 let pollVersion = 0, playbackTimer, busySequence = 0, briefPollTimer, briefPollCount = 0
 let openingDeepLink = false
 const sourceRequests = createRequestGuard(), workspaceRequests = createRequestGuard(), eventRequests = createRequestGuard(), forecastRequests = createRequestGuard()
 const briefRequests = createRequestGuard(), citationRequests = createRequestGuard()
 const modelBindingRequests = createRequestGuard(), sessionPollRequests = createRequestGuard()
+const chatStatusRequests = createRequestGuard()
 const roles = { ventilation: '通风人员', gas_governance: '瓦斯治理人员', safety_management: '安全管理人员' }
 const phases = { new: '待确认', confirmed: '已确认', advice_reviewed: '建议已审核', executed: '已执行', feedback_submitted: '待复核', reviewed: '已复核' }
 const states = { running: '进行中', paused: '已暂停', ended: '已结束', completed: '已完成', failed: '失败', partial: '部分完成', awaiting_input: '待补充', cancelled: '已取消' }
@@ -65,6 +68,11 @@ const chosenAdvice = computed(() => adviceOptions.value.find(item => `${item.adv
 const chosenAdviceStale = computed(() => adviceIsStale(caseResult.value, chosenAdvice.value))
 const caseAction = (action, checkBusy = true) => canCaseAction(action, { packet: caseResult.value, advice: chosenAdvice.value, roles: user.value?.roles, content: caseContent.value, busy: checkBusy && Boolean(busy.value) })
 const operationContext = computed(() => active.value?.mode === 'realtime' ? 'field_record' : 'rehearsal')
+const chatConnection = computed(() => {
+  if (chatStatusError.value) return { title: '问答接入状态读取未完成', detail: chatStatusError.value, tone: 'warning', switchSession: null }
+  if (active.value && !chatStatus.value) return { title: '正在读取问答接入状态', detail: '', tone: 'muted', switchSession: null }
+  return chatStatusView(chatStatus.value)
+})
 const api = createApiClient({ getToken: () => token.value, onUnauthorized: clearLogin, presentation: presentationEnabled })
 const post = (path, body) => api(path, { method: 'POST', body })
 const list = value => Array.isArray(value) ? value : []
@@ -73,6 +81,7 @@ const qualityLabel = flag => qualityNames[flag] || flag
 
 function clearLogin() {
   sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate()
+  chatStatusRequests.invalidate(); chatStatus.value = null; chatStatusError.value = ''
   pollVersion++
   token.value = ''; user.value = null; active.value = null; chatBusy.value = false; chatTask.value = null
   sources.value = []; sessions.value = []; points.value = []; messages.value = []; refs.value = []; reports.value = []; evaluationListRequests.invalidate(); referenceListRequests.invalidate(); clearMonitor()
@@ -111,10 +120,22 @@ async function loadBase() {
   const [sourceData, sessionData] = await Promise.all([api('/sources'), api('/sessions')])
   sources.value = list(sourceData); sessions.value = list(sessionData)
   const target = eventDeepLink(window.location.search)
-  if (target) await openEventDeepLink(target)
+  const chatTarget = chatDeepLink(window.location.search)
+  if (chatTarget) await openChatDeepLink(chatTarget)
+  else if (target) await openEventDeepLink(target)
   else { sourceId.value = sources.value[0]?.source_id || ''; await changeSource() }
   await loadReferences()
   if (safety.value) await loadReports()
+}
+async function openChatDeepLink(target) {
+  openingDeepLink = true
+  try {
+    const session = await api(`/sessions/${encodeURIComponent(target.session_id)}`)
+    active.value = session; sourceId.value = session.source_id; tab.value = 'monitor'
+    await changeSource(); await refreshWorkspace()
+    await nextTick()
+    chatPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  } finally { openingDeepLink = false }
 }
 async function openEventDeepLink(target) {
   openingDeepLink = true
@@ -548,9 +569,26 @@ async function sendChat() {
     }
     if (version !== pollVersion) return
     chatTask.value = task
-    messages.value.push({ role: 'assistant', text: task.final_text || task.answer || task.message || `任务状态：${states[task.state] || task.state}`, state: task.state, task_id: task.task_id, method: task.method || task.brief_method, model: task.model, steps: task.tool_steps })
+    if (task.chat_status) chatStatus.value = task.chat_status
+    messages.value.push(assistantMessage(task, states))
   } catch (caught) { if (version === pollVersion) messages.value.push({ role: 'assistant', text: caught.message, state: 'failed' }) }
   finally { if (version === pollVersion) chatBusy.value = false }
+}
+async function loadChatStatus(sessionId) {
+  const request = chatStatusRequests.begin()
+  try {
+    const status = await api(`/agent/status?${queryString({ session_id: sessionId })}`)
+    if (chatStatusRequests.isCurrent(request) && active.value?.session_id === sessionId) chatStatus.value = status
+  } catch (caught) {
+    if (chatStatusRequests.isCurrent(request) && active.value?.session_id === sessionId) chatStatusError.value = caught.message
+  }
+}
+async function switchAuthorizedChatSession() {
+  const target = chatConnection.value.switchSession
+  if (!target || busy.value || chatBusy.value) return
+  await selectSession({ target: { value: target.session_id } })
+  await nextTick()
+  chatPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 async function cancelChat() {
   if (!chatTask.value?.task_id) return
@@ -577,8 +615,12 @@ watch(() => JSON.stringify([active.value?.session_id, active.value?.mode, active
   clearInterval(playbackTimer)
   if (active.value?.state === 'running' && !openingDeepLink) playbackTimer = setInterval(pollRunningSession, 5000)
 })
-watch(() => active.value?.session_id, () => { replayTime.value = active.value ? mineTime(active.value.start_as_of).replace(' ', 'T') : '' })
-onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate(); caseReferenceRequests.invalidate(); referenceSearchRequests.invalidate(); referenceListRequests.invalidate(); clearInterval(playbackTimer); modelBindingRequests.invalidate(); sessionPollRequests.invalidate(); clearBrief() })
+watch(() => active.value?.session_id, sessionId => {
+  replayTime.value = active.value ? mineTime(active.value.start_as_of).replace(' ', 'T') : ''
+  chatStatusRequests.invalidate(); chatStatus.value = null; chatStatusError.value = ''
+  if (sessionId) loadChatStatus(sessionId)
+})
+onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate(); caseReferenceRequests.invalidate(); referenceSearchRequests.invalidate(); referenceListRequests.invalidate(); clearInterval(playbackTimer); modelBindingRequests.invalidate(); sessionPollRequests.invalidate(); chatStatusRequests.invalidate(); clearBrief() })
 </script>
 
 <template>
@@ -645,7 +687,9 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
         <section class="panel"><div class="section-heading"><div><h2>已登记模型</h2></div></div><div v-if="!models.length" class="empty-state"><span>◈</span><p>{{ active ? '当前点位暂无已登记模型' : '选择会话后查看模型状态' }}</p></div><article v-for="model in models" :key="`${model.model_id}:${model.version}`" class="model-card"><div><strong>{{ model.name || model.model_id }}</strong><span class="tag" :class="model.model_type === 'baseline' ? 'amber' : 'teal'">{{ model.model_type === 'baseline' ? '基线模型' : '专业模型' }}</span><span v-if="model.deployment_stage === 'experimental'" class="tag amber">实验模型</span></div><small>版本 {{ model.version }} · 输入 {{ model.input_window }} 个时间桶 · 预测时长 {{ model.horizon_seconds }} 秒</small></article></section>
         <EvaluationWorkspace :api="api" :safety="safety" :session="active" :source-id="sourceId" :points="points" :point-id="pointId" :models="models" :selected-model="selectedModel" :reports="reports" @created="acceptReport" @refresh="run('读取评估报告', loadReports)" @error="message => error = message" @notice="message => notice = message" />
       </template>
-      </main><aside v-if="tab !== 'model-connection'" class="assistant-panel panel"><div class="assistant-heading"><span class="assistant-symbol">✦</span><div><h2>风险管控助手</h2></div><span class="tag teal">{{ assistantChannel(chatTask) }}</span></div><div class="assistant-context"><span class="dot"></span>{{ active ? `已绑定 ${source?.face_id || ''} 工作面会话` : '等待选择会话' }}</div><div class="chat-messages" aria-live="polite"><div v-if="!messages.length" class="assistant-welcome"><span>✦</span><h3>业务查询</h3><button v-for="question in ['当前有哪些预警事件？','查看当前点位最近一小时的监测数据','这次事件有哪些可回查依据？']" :key="question" :disabled="!active" @click="chatInput = question">{{ question }} ↗</button></div><article v-for="(message,index) in messages" :key="index" class="chat-message" :class="message.role"><span class="message-label">{{ message.role === 'user' ? '我' : '风险管控助手' }}</span><p>{{ message.text }}</p><small v-if="message.state">{{ states[message.state] || message.state }} · {{ assistantChannel(message) }}</small><details v-if="message.steps?.length"><summary>工具调用记录</summary><ol class="chat-tool-steps"><li v-for="(step,stepIndex) in message.steps" :key="step.call_id || stepIndex"><strong>{{ toolName(step.name) }}</strong> · {{ toolState(step.status) }}<small v-if="Number.isFinite(step.elapsed_ms)"> · {{ step.elapsed_ms }} ms</small><p v-if="toolArguments(step.arguments)">{{ toolArguments(step.arguments) }}</p></li></ol></details></article><div v-if="chatBusy" class="chat-thinking"><span>{{ chatTask?.state ? (states[chatTask.state] || chatTask.state) : '正在提交任务' }}…</span><button v-if="chatTask?.task_id" class="ghost small" :disabled="!!busy || !['running','queued'].includes(chatTask.state)" @click="cancelChat">取消任务</button></div></div><form class="chat-form" @submit.prevent="sendChat"><textarea v-model="chatInput" rows="3" :disabled="!active" placeholder="向助手提问…" aria-label="向风险管控助手提问" @keydown.ctrl.enter.prevent="sendChat"></textarea><div><small>{{ active ? '当前会话' : '请先创建会话' }}</small><button class="primary small" :disabled="!active || !chatInput.trim() || chatBusy">{{ chatBusy ? '处理中' : '发送 ↑' }}</button></div></form></aside></div>
+      </main><aside v-if="tab !== 'model-connection'" ref="chatPanel" class="assistant-panel panel"><div class="assistant-heading"><span class="assistant-symbol">✦</span><div><h2>风险管控助手</h2></div><span class="tag teal">{{ assistantChannel(chatTask) }}</span></div><div class="assistant-context"><span class="dot"></span>{{ active ? `已绑定 ${source?.face_id || ''} 工作面会话` : '等待选择会话' }}</div>
+        <div class="assistant-route" :class="chatConnection.tone" role="status"><div><strong>{{ chatConnection.title }}</strong><p v-if="chatConnection.detail">{{ chatConnection.detail }}</p></div><div v-if="chatConnection.switchSession" class="assistant-route-action"><button type="button" class="secondary small" :disabled="!!busy || chatBusy" @click="switchAuthorizedChatSession">切换到已授权回放</button><small>{{ chatConnection.switchSession.source_name || chatConnection.switchSession.source_id }}</small></div></div>
+        <div class="chat-messages" aria-live="polite"><div v-if="!messages.length" class="assistant-welcome"><span>✦</span><h3>业务查询</h3><button v-for="question in ['当前有哪些预警事件？','查看当前点位最近一小时的监测数据','这次事件有哪些可回查依据？']" :key="question" :disabled="!active" @click="chatInput = question">{{ question }} ↗</button></div><article v-for="(message,index) in messages" :key="index" class="chat-message" :class="message.role"><span class="message-label">{{ message.role === 'user' ? '我' : '风险管控助手' }}</span><p>{{ message.text }}</p><small v-if="message.state">{{ states[message.state] || message.state }} · {{ assistantChannel(message) }}</small><details v-if="message.steps?.length"><summary>工具调用记录</summary><ol class="chat-tool-steps"><li v-for="(step,stepIndex) in message.steps" :key="step.call_id || stepIndex"><strong>{{ toolName(step.name) }}</strong> · {{ toolState(step.status) }}<small v-if="Number.isFinite(step.elapsed_ms)"> · {{ step.elapsed_ms }} ms</small><p v-if="toolArguments(step.arguments)">{{ toolArguments(step.arguments) }}</p></li></ol></details></article><div v-if="chatBusy" class="chat-thinking"><span>{{ chatTask?.state ? (states[chatTask.state] || chatTask.state) : '正在提交任务' }}…</span><button v-if="chatTask?.task_id" class="ghost small" :disabled="!!busy || !['running','queued'].includes(chatTask.state)" @click="cancelChat">取消任务</button></div></div><form class="chat-form" @submit.prevent="sendChat"><textarea v-model="chatInput" rows="3" :disabled="!active" placeholder="向助手提问…" aria-label="向风险管控助手提问" @keydown.ctrl.enter.prevent="sendChat"></textarea><div><small>{{ active ? '当前会话' : '请先创建会话' }}</small><button class="primary small" :disabled="!active || !chatInput.trim() || chatBusy">{{ chatBusy ? '处理中' : '发送 ↑' }}</button></div></form></aside></div>
       </div><footer class="page-footer">采煤工作面瓦斯超限预测及溯源管控智能体 <span>{{ active ? `${active.mode === 'realtime' ? '现场接入' : '演练回放'} · 数据时间 ${mineTime(active.as_of)}` : '尚未选择会话' }}</span></footer>
     </div>
   </div>
@@ -653,6 +697,7 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
 
 <style scoped>
 .content-grid.connection-layout{grid-template-columns:minmax(0,1fr)}
+.assistant-route{grid-column:1/-1;padding:12px 15px;border-bottom:1px solid #29465b;display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.assistant-route strong{font-size:13px;color:#a9c7dc}.assistant-route p{font-size:12px;color:#91abc2;line-height:1.7;margin-top:5px}.assistant-route.connected strong{color:#83d2c1}.assistant-route.warning strong{color:#e3bc7c}.assistant-route-action{display:grid;gap:5px;max-width:270px;flex-shrink:0}.assistant-route-action small{overflow-wrap:anywhere;color:#91abc2;font-size:11px}@media(max-width:700px){.assistant-route{flex-direction:column}.assistant-route-action{max-width:100%}}
 .chat-tool-steps{padding-left:18px;margin:8px 0;font-size:12px;line-height:1.7}.chat-tool-steps li{margin-bottom:8px;overflow-wrap:anywhere}.chat-tool-steps strong{font-weight:500}.chat-tool-steps p{margin:2px 0;color:#91abc2}
 .replay-toolbar{display:flex;align-items:flex-start;flex-wrap:wrap;gap:14px;margin:0 0 16px;padding:11px 15px;background:#0e263b;border:1px solid #25445a;border-radius:5px;font-size:12px}.replay-speed{display:flex;align-items:center;gap:10px;margin:0;white-space:nowrap}.replay-speed select{margin:0;width:85px;padding:5px 8px}.replay-toolbar>details{flex:1;min-width:220px;max-width:100%;padding-top:5px}.replay-toolbar summary{cursor:pointer;color:#8ecbdb}.replay-controls{display:flex;gap:10px;align-items:flex-end;margin-top:12px;flex-wrap:wrap}.replay-controls>label{margin:0;flex:1;min-width:190px}.replay-controls input{min-width:0;max-width:100%}.replay-controls button{margin-bottom:1px}@media(max-width:760px){.replay-toolbar{gap:9px}.replay-toolbar>details{flex-basis:100%;min-width:0}.replay-controls>label{min-width:0;flex-basis:100%}}
 .case-reference-option{border-bottom:1px solid #29465b;padding-bottom:12px;margin-bottom:12px}.case-reference-option .reference-select{margin-bottom:4px}.case-original article{margin-top:12px;padding:12px;background:#102b40;border:1px solid #294a62;border-radius:4px}.case-original article strong{font-size:12px;color:#8acddc}.case-original article p{white-space:pre-wrap;line-height:1.9;margin:7px 0 0;overflow-wrap:anywhere}.advice-items button{display:block;margin-top:5px}.case-archive dl{display:grid;gap:8px;margin:16px 0;font-size:13px}.case-archive dl>div{display:grid;grid-template-columns:100px minmax(0,1fr);gap:8px}.case-archive dt{color:#90adc4}.case-archive dd{margin:0;overflow-wrap:anywhere}

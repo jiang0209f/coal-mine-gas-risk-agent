@@ -579,6 +579,11 @@ def review_experience(experience_id: str, body: Review, a=Depends(actor), s=Depe
     return s["knowledge"].review_experience(a, experience_id, **body.model_dump())
 
 
+@router.get("/agent/status")
+def agent_status(session_id: str,a=Depends(actor),s=Depends(services)):
+    return s["agent"].chat_status(s["sessions"].get_context(a,session_id))
+
+
 @router.post("/chat")
 def chat(body: Chat, background_tasks: BackgroundTasks, a=Depends(actor), s=Depends(services)):
     ctx = s["sessions"].get_context(a, body.session_id)
