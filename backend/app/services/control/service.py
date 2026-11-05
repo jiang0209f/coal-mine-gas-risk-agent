@@ -10,6 +10,7 @@ from app.schemas.common import Actor, DomainError, now_utc, utcstr
 __all__ = ["ControlService"]
 
 _CAUSES = {
+    "local_gas_accumulation": ("瓦斯异常积聚", "瓦斯积聚", "局部瓦斯"),
     "ventilation_abnormal": ("通风系统异常", "通风异常", "风量不足", "通风"),
     "gas_extraction_inadequate": ("抽采不足", "抽采"),
     "goaf_gas_emission": ("采空区瓦斯涌出", "采空区"),

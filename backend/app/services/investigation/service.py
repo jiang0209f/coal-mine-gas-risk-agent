@@ -271,6 +271,10 @@ class InvestigationService:
     def _finish(report, output):
         known = {ref["reference_id"]:ref for ref in report["evidence_refs"]}
         hypotheses = []
+        report["model_hypotheses"] = deepcopy(output.get("hypotheses", []))
+        cutting_state_missing = any("cutting_state" in step.get("missing_fields", [])
+                                    for step in report.get("investigation_steps", []))
+        constraints=[]
         for hypothesis in output.get("hypotheses", [])[:12]:
             if not isinstance(hypothesis,dict): continue
             ids = hypothesis.get("reference_ids", [])
@@ -280,8 +284,14 @@ class InvestigationService:
                 continue
             cause, rationale = hypothesis.get("cause"), hypothesis.get("rationale")
             if not isinstance(cause,str) or not cause.strip() or not isinstance(rationale,str): continue
+            model_status=status
+            if status == "opposed" and cutting_state_missing and any(word in cause for word in ("割煤","截割")):
+                status="undetermined"
+                rationale="当前仅有速度和截割电流代理数据，原始割煤状态缺失，暂不能确认排除割煤活动的影响。"
+                constraints.append("原始割煤状态缺失，需补充作业记录后核实割煤活动及其影响。")
             hypotheses.append(dict(cause_id=hashlib.sha256(cause.strip().encode()).hexdigest()[:12],
                 cause=cause[:150], rationale=rationale[:1800], support_status=status,
+                model_support_status=model_status,
                 assessment={"supported":"support","opposed":"oppose","undetermined":"unknown"}[status],
                 evidence_refs=[deepcopy(known[ref]) for ref in ids]))
         report.update(state="draft", status="draft", hypotheses=hypotheses,
@@ -291,6 +301,8 @@ class InvestigationService:
             dropped_conclusion_count=len(output.get("hypotheses", []))-len(hypotheses))
         if not hypotheses:
             report["pending_items"].append("现有工具结果未形成可引用的原因判断，需补充现场核实。")
+        report["pending_items"]=list(dict.fromkeys([*report["pending_items"],*constraints]))
+        report["evidence_constraint_notes"]=constraints
 
     def review(self, context, report_id, decision, note):
         context.actor.require_role("safety_management")

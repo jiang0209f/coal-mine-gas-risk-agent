@@ -17,6 +17,17 @@ def test_condition_group_labels_survive_the_outgoing_metric_whitelist():
     assert InvestigationService._safe_metrics(metrics)==metrics
 
 
+def test_missing_real_cutting_state_cannot_exclude_cutting_from_proxy_data():
+    report={"investigation_steps":[{"tool":"get_condition_timeline","missing_fields":["cutting_state"]}],
+            "evidence_refs":[{"reference_id":"EV1","kind":"tool_result"}]}
+    InvestigationService._finish(report,{"hypotheses":[{"cause":"割煤活动导致瓦斯升高", "support_status":"opposed",
+        "rationale":"速度和电流均为零。", "reference_ids":["EV1"]}],"pending_items":[]})
+    assert report["hypotheses"][0]["support_status"] == "undetermined"
+    assert report["hypotheses"][0]["model_support_status"] == "opposed"
+    assert not report["excluded_items"]
+    assert report["model_hypotheses"][0]["support_status"] == "opposed"
+
+
 def test_event_to_reviewed_experience_and_next_event_plan(tmp_path):
     s = build_services(Settings(_env_file=None, runtime_dir=tmp_path,
         database_url="sqlite+pysqlite:///:memory:", deepseek_api_key="offline-only",

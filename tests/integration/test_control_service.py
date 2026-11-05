@@ -194,3 +194,15 @@ def test_event_grade_upgrade_blocks_execution_of_previously_approved_plan(parts)
     with pytest.raises(DomainError) as caught:
         parts.service.record_execution(parts.context, workflow["tasks"][0]["task_id"], "尝试沿用旧计划")
     assert caught.value.code == "event_risk_upgraded"
+
+
+def test_local_accumulation_measure_matches_supported_report_wording(parts):
+    parts.fragment["text"] = "当发生瓦斯积聚时，必须及时处理。"
+    measure = parts.service.import_measures(parts.context, ["ref"])[0]
+    assert "local_gas_accumulation" in measure["cause_ids"]
+    parts.service.review_measure(parts.context, measure["measure_id"], "approved", "隔离夹具人工核对", assigned_role="gas_governance")
+    report = parts.store.get("investigation_report", "report")
+    report["supported_causes"] = [{"cause": "局部（本测点附近）瓦斯异常积聚或涌出，非全断面扩散", "support_status": "supported"}]
+    parts.store.put("investigation_report", "report", report)
+    plan = parts.service.draft_control_plan(parts.context, "event", "report")
+    assert [item["measure_id"] for item in plan["items"]] == [measure["measure_id"]]
