@@ -4,7 +4,7 @@ import { createApiClient } from './api.mjs'
 import { presentationEnabled } from './presentation.mjs'
 import { assistantChannel, toolName, toolState, toolArguments } from './assistant.mjs'
 import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, queryString } from './utils.mjs'
-import { contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, isActiveEvent, latestVisibleReading, modelKey, needsEvidenceReview, replayStart, sessionModelKey, sessionMonitorLabel } from './workspace.mjs'
+import { contextKey, createRequestGuard, displayWindow, eventDeepLink, forecastForEvent, forecastMatches, isActiveEvent, latestVisibleReading, modelKey, needsEvidenceReview, replayStart, sessionModelKey, sessionMonitorLabel } from './workspace.mjs'
 import { briefCitations, briefMatches, briefScopeKey, localCitationDetail, shouldPollBrief } from './briefs.mjs'
 import MonitorWorkspace from './components/MonitorWorkspace.vue'
 import KnowledgeWorkspace from './components/KnowledgeWorkspace.vue'
@@ -22,6 +22,7 @@ const series = ref({ rows: [] }), events = ref([]), rules = ref(null), models = 
 const selectedModel = ref(''), forecast = ref(null), pointReadings = ref({}), forecastLoading = ref(false), forecastError = ref(''), eventLoading = ref(false)
 const selectedEvent = ref(null), evidence = ref(null), caseResult = ref(null), selectedAdvice = ref('')
 const eventBrief = ref(null), briefLoading = ref(false), briefError = ref(''), briefActionBusy = ref(false), briefPollPaused = ref(false), briefFocusToken = ref(0)
+const workflowView = ref(''), workflowFocusToken = ref(0)
 const citationDetail = ref(null), citationLoading = ref(false), citationError = ref('')
 const caseContent = ref(''), refs = ref([]), referenceQuery = ref(''), searchResults = ref([]), selectedRefs = ref([])
 const uploadFile = ref(null), importResult = ref(null), importStart = ref(''), importEnd = ref('')
@@ -31,6 +32,7 @@ const caseReference = ref(null), caseReferenceLoading = ref(false), experienceCo
 const caseReferenceRequests = createRequestGuard(), referenceSearchRequests = createRequestGuard(), referenceListRequests = createRequestGuard()
 const chatInput = ref(''), messages = ref([]), chatBusy = ref(false), chatTask = ref(null)
 let pollVersion = 0, playbackTimer, busySequence = 0, briefPollTimer, briefPollCount = 0
+let openingDeepLink = false
 const sourceRequests = createRequestGuard(), workspaceRequests = createRequestGuard(), eventRequests = createRequestGuard(), forecastRequests = createRequestGuard()
 const briefRequests = createRequestGuard(), citationRequests = createRequestGuard()
 const modelBindingRequests = createRequestGuard(), sessionPollRequests = createRequestGuard()
@@ -105,10 +107,29 @@ async function logout() {
 async function loadBase() {
   const [sourceData, sessionData] = await Promise.all([api('/sources'), api('/sessions')])
   sources.value = list(sourceData); sessions.value = list(sessionData)
-  sourceId.value = sources.value[0]?.source_id || ''
-  await changeSource()
+  const target = eventDeepLink(window.location.search)
+  if (target) await openEventDeepLink(target)
+  else { sourceId.value = sources.value[0]?.source_id || ''; await changeSource() }
   await loadReferences()
   if (safety.value) await loadReports()
+}
+async function openEventDeepLink(target) {
+  openingDeepLink = true
+  try {
+    const session = await api(`/sessions/${encodeURIComponent(target.session_id)}`)
+    active.value = session; sourceId.value = session.source_id
+    await changeSource()
+    const visible = list(await api(`/events?${queryString({ session_id: session.session_id })}`))
+    const event = visible.find(item => item.event_id === target.event_id)
+    if (!event) throw new Error('直达链接中的事件在当前会话时刻不可见。')
+    if (!points.value.some(item => item.point_id === event.point_id)) throw new Error('事件测点不属于当前数据源。')
+    pointId.value = event.point_id
+    await refreshWorkspace()
+    const current = events.value.find(item => item.event_id === target.event_id)
+    if (!current) throw new Error('当前测点的事件记录尚未加载，请刷新。')
+    await loadEvent(current)
+    tab.value = 'monitor'; workflowView.value = target.view; workflowFocusToken.value++
+  } finally { openingDeepLink = false }
 }
 async function loadReports() {
   if (!safety.value) return
@@ -551,7 +572,7 @@ async function pollRunningSession() {
 }
 watch(() => JSON.stringify([active.value?.session_id, active.value?.mode, active.value?.state]), () => {
   clearInterval(playbackTimer)
-  if (active.value?.state === 'running') playbackTimer = setInterval(pollRunningSession, 5000)
+  if (active.value?.state === 'running' && !openingDeepLink) playbackTimer = setInterval(pollRunningSession, 5000)
 })
 watch(() => active.value?.session_id, () => { replayTime.value = active.value ? mineTime(active.value.start_as_of).replace(' ', 'T') : '' })
 onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceRequests.invalidate(); eventRequests.invalidate(); forecastRequests.invalidate(); caseReferenceRequests.invalidate(); referenceSearchRequests.invalidate(); referenceListRequests.invalidate(); clearInterval(playbackTimer); modelBindingRequests.invalidate(); sessionPollRequests.invalidate(); clearBrief() })
@@ -575,7 +596,7 @@ onBeforeUnmount(() => { pollVersion++; sourceRequests.invalidate(); workspaceReq
       <div class="replay-toolbar" v-if="active && active.mode !== 'realtime'"><label class="replay-speed">回放倍速<select :value="active.speed || 1" :disabled="!!busy || active.state === 'ended'" @change="sessionAction('set_speed', { speed: Number($event.target.value) })"><option v-for="speed in [0.5,1,2,5,10]" :key="speed" :value="speed">{{ speed }}倍</option></select></label><details><summary>重新回放</summary><div class="replay-controls"><label>回放起点（UTC+8）<input v-model="replayTime" type="datetime-local" step="1"></label><button class="secondary small" :disabled="!!busy || !replayTime" @click="restartReplay">从此处新建回放</button></div></details></div>
       <div class="content-grid" :class="{ 'monitor-layout': tab === 'monitor' }"><main class="main-column">
       <template v-if="tab === 'monitor'">
-        <MonitorWorkspace :api="api" :user-roles="user.roles" :session="active" :source="source" :points="points" :point-id="pointId" :series="series" :point-readings="pointReadings" :events="events" :rules="rules" :models="models" :selected-model="selectedModel" :forecast="forecast" :selected-event="selectedEvent" :evidence="evidence" :case-result="caseResult" :busy="busy" :event-loading="eventLoading" :forecast-loading="forecastLoading" :forecast-error="forecastError" :window="chartWindow"
+        <MonitorWorkspace :api="api" :user-roles="user.roles" :workflow-view="workflowView" :workflow-focus-token="workflowFocusToken" :session="active" :source="source" :points="points" :point-id="pointId" :series="series" :point-readings="pointReadings" :events="events" :rules="rules" :models="models" :selected-model="selectedModel" :forecast="forecast" :selected-event="selectedEvent" :evidence="evidence" :case-result="caseResult" :busy="busy" :event-loading="eventLoading" :forecast-loading="forecastLoading" :forecast-error="forecastError" :window="chartWindow"
           :event-brief="eventBrief" :brief-loading="briefLoading" :brief-error="briefError" :brief-action-busy="briefActionBusy" :brief-poll-paused="briefPollPaused" :brief-focus-token="briefFocusToken" :citation-detail="citationDetail" :citation-loading="citationLoading" :citation-error="citationError"
           @select-point="choosePoint" @select-event="event => run('加载事件依据', () => loadEvent(event))" @select-model="chooseModel" @run-forecast="runForecast" @clear-event="run('返回当前监测', async () => { clearEvent(); await refreshWorkspace() })" @open-case="tab = 'cases'" @refresh="run('刷新数据', refreshWorkspace)"
           @generate-brief="generateBrief(false)" @retry-brief="generateBrief(true)" @cancel-brief="cancelBrief" @refresh-brief="loadBrief()" @open-citation="openBriefCitation" @close-citation="closeCitation" />

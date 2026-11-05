@@ -6,6 +6,14 @@ import { adviceIsStale, canCaseAction, referenceLocation, referenceValidity } fr
 import { advanceAsOf, chinaInputToIso, mineTime, observationWindow, seriesToPoints } from '../src/utils.mjs'
 import { chooseModelKey, contextKey, createRequestGuard, displayWindow, forecastForEvent, forecastMatches, latestVisibleReading, modelKey, replayStart } from '../src/workspace.mjs'
 
+test('event deep links select only an explicit session event and read-only workflow view', async () => {
+  const { eventDeepLink } = await import('../src/workspace.mjs')
+  assert.deepEqual(eventDeepLink('?session_id=session%2F1&event_id=event%2F2&view=control'), { session_id: 'session/1', event_id: 'event/2', view: 'control' })
+  assert.equal(eventDeepLink('?session_id=s&event_id=e&view=investigation').view, 'investigation')
+  assert.equal(eventDeepLink('?session_id=s&view=control'), null)
+  assert.equal(eventDeepLink('?session_id=s&event_id=e&view=approve'), null)
+})
+
 test('session model selection restores the point binding and retains the baseline default for unbound points', async () => {
   const { sessionModelKey } = await import('../src/workspace.mjs')
   const models = [{ model_id: 'baseline', version: 'v1', default_eligible: true }, { model_id: 'professional', version: 'v2', default_eligible: false }]

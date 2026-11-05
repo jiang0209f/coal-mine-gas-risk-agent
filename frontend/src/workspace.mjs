@@ -2,6 +2,12 @@ import { mineTime, observationWindow } from './utils.mjs'
 
 export const modelKey = model => model ? `${model.model_id}:${model.version ?? model.model_version}` : ''
 
+export function eventDeepLink(search = '') {
+  const params = new URLSearchParams(search)
+  const session_id = params.get('session_id')?.trim(), event_id = params.get('event_id')?.trim(), view = params.get('view')
+  return session_id && event_id && ['control', 'investigation'].includes(view) ? { session_id, event_id, view } : null
+}
+
 export function chooseModelKey(models, current = '') {
   if (models.some(model => modelKey(model) === current)) return current
   const defaults = models.filter(model => model.default_eligible !== false)

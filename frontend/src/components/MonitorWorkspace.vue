@@ -20,6 +20,7 @@ const props = defineProps({
   eventBrief: Object, briefLoading: Boolean, briefError: String, briefActionBusy: Boolean, briefPollPaused: Boolean, briefFocusToken: Number,
   citationDetail: Object, citationLoading: Boolean, citationError: String,
   api: Function, userRoles: { type: Array, default: () => [] },
+  workflowView: String, workflowFocusToken: Number,
 })
 const emit = defineEmits(['select-point', 'select-event', 'select-model', 'run-forecast', 'clear-event', 'open-case', 'refresh', 'generate-brief', 'retry-brief', 'cancel-brief', 'refresh-brief', 'open-citation', 'close-citation'])
 const investigationTab = ref('analysis')
@@ -120,6 +121,9 @@ function renderChart() {
 watch([chartPoints, intervals, () => props.rules, () => props.window, () => props.selectedEvent, chartEl], () => nextTick(renderChart))
 watch(() => props.selectedEvent?.event_id, () => { investigationTab.value = 'analysis' })
 watch(() => props.briefFocusToken, () => { if (props.selectedEvent) investigationTab.value = 'brief' })
+watch(() => props.workflowFocusToken, () => {
+  if (props.selectedEvent && ['control', 'investigation'].includes(props.workflowView)) investigationTab.value = props.workflowView
+}, { immediate: true })
 onBeforeUnmount(() => { resizeObserver?.disconnect(); chart?.dispose() })
 </script>
 
