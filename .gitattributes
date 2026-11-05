@@ -1,0 +1,2 @@
+# Frozen benchmark digests bind exact bytes across Windows and Linux checkouts.
+tests/fixtures/knowledge_retrieval_*.json -text
