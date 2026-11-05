@@ -55,6 +55,55 @@ def test_synonym_question_recalls_the_relevant_passage(retrieve, question, text)
     assert result[0]["rerank_reasons"]
 
 
+@pytest.mark.parametrize("question,text", [
+    ("读数正常后能让电源自己接通吗", "恢复供电前应完成检查，由授权人员人工合闸。"),
+    ("主电脑死机了，备用机多快接手", "双机热备运行时，备用主机应按规定自动投入。"),
+    ("探头用气样标好了，要留什么单子", "甲烷传感器调校结束后填写调校记录。"),
+    ("断开重连后补来的值能当当前值吗", "补传数据应保留原采样时间，并登记接收时间。"),
+    ("那份拷贝真能还原吗", "备份完整性检查后，应进行恢复验证。"),
+    ("录入错了能覆盖旧数吗", "错误更正应保留原始记录并登记新修订。"),
+    ("大风机停了怎么处置", "主要通风机停止后应按适用条文处置。"),
+])
+def test_operational_paraphrases_recall_formal_topics(retrieve, question, text):
+    result = retrieve(question, [candidate("evidence", text), candidate("other", "财务票据定期归档。")])
+    assert [row["reference_id"] for row in result] == ["evidence"]
+    assert result[0]["matched_concepts"]
+
+
+@pytest.mark.parametrize("question,text", [
+    ("会议结束后从哪里离开", "事故后应按避灾路线撤离。"),
+    ("火灾调查记录由谁签字", "发生事故后应按避灾路线撤离。"),
+    ("电源适配器在哪里买", "恢复供电前应完成检查。"),
+])
+def test_colloquial_expansion_requires_the_action_context(retrieve, question, text):
+    assert retrieve(question, [candidate("other-topic", text, title="安全要求")]) == []
+
+
+@pytest.mark.parametrize("question,text,similarity", [
+    ("历史课上怎样评价风流人物", "通风系统异常时核对风流路线。", 0.379),
+    ("如何还原手机出厂设置", "数据库备份恢复前进行恢复验证。", 0.436),
+    ("我要给小说人物安排一个脱险结局", "事故中应按避灾路线撤离。", 0.440),
+])
+def test_polysemous_words_need_a_mining_or_data_context(retrieve, question, text, similarity):
+    rows = [candidate("other-domain", text, title="安全要求")]
+    vectors = [[1, 0], [similarity, math.sqrt(1 - similarity ** 2)]]
+    assert retrieve(question, rows, embedding=lambda texts: vectors) == []
+
+
+@pytest.mark.parametrize("question,text", [
+    ("备用机组保养时怎样添加润滑油", "监控主机采用双机热备，备用主机自动投入。"),
+    ("数学试卷的答案怎么更正", "监测原始记录的错误更正保留新修订。"),
+    ("电源适配器接通后为什么发热", "恢复供电前应检查，由授权人员人工合闸。"),
+    ("火灾事故调查会议结束，大家从哪里离开会议室", "事故中应按避灾路线撤离。"),
+    ("仓库补来的配件如何验收", "补传数据保留原采样时间。"),
+    ("公司新修订的年假管理办法何时执行", "监测原始记录的错误更正保留新修订。"),
+])
+@pytest.mark.parametrize("with_vectors", [False, True])
+def test_operational_aliases_require_their_device_or_data_object(retrieve, question, text, with_vectors):
+    embedding = (lambda texts: [[1, 0], [0.2, math.sqrt(0.96)]]) if with_vectors else None
+    assert retrieve(question, [candidate("other-topic", text, title="安全要求")], embedding=embedding) == []
+
+
 def test_complete_standard_number_beats_similar_title_and_other_edition(retrieve):
     rows = [candidate("wrong-edition", "甲烷传感器使用要求。", title="AQ 1029-2007"),
             candidate("exact", "监控设备核对。", title="AQ 1029-2019"),
@@ -111,6 +160,39 @@ def test_negative_or_orthogonal_vectors_do_not_force_irrelevant_recall(retrieve)
     result = retrieve("明天是否降雨", [candidate("gas", "瓦斯超限断电。"), candidate("wind", "通风检查。")],
                       embedding=lambda texts: [[1, 0], [0, 1], [-1, 0]])
     assert result == []
+
+
+def test_colloquial_escape_question_recalls_route_without_shared_terms(retrieve):
+    # Measured local embedding score for this missed synthetic question/passage.
+    similarity = 0.5786556042
+    rows = [candidate("escape-route", "发生事故后应按避灾路线撤离危险区域，核对出口与安全路线。",
+                      title="事故处置")]
+    result = retrieve("遇险时人员从哪里离开", rows,
+                      embedding=lambda texts: [[1, 0], [similarity, math.sqrt(1 - similarity ** 2)]])
+    assert [row["reference_id"] for row in result] == ["escape-route"]
+    assert result[0]["semantic_score"] == pytest.approx(similarity)
+    assert result[0]["matched_terms"] == []
+
+
+@pytest.mark.parametrize("text,similarity", [
+    ("旅客离开列车时应寻找车厢出口。", 0.5338),
+    ("游客游览结束后从景区出口离开。", 0.5361),
+])
+def test_similar_cross_topic_departure_does_not_recall_an_escape_rule(retrieve, text, similarity):
+    result = retrieve("遇险时人员从哪里离开", [candidate("other-domain", text, title="出行服务")],
+                      embedding=lambda texts: [[1, 0], [similarity, math.sqrt(1 - similarity ** 2)]])
+    assert result == []
+
+
+def test_semantic_answer_outranks_generic_action_word_collisions(retrieve):
+    rows = [candidate("action", "通风不良时停止全部电路，撤出作业人员，向调度室报告。", title="异常处置"),
+            candidate("statistics", "风路停电汇报台账只用于统计巡检次数。", title="台账整理")]
+    similarities = (0.6724, 0.50)
+    vectors = [[1, 0], *[[score, math.sqrt(1 - score ** 2)] for score in similarities]]
+    result = retrieve("风路堵住不畅通了，要不要先停电，向谁汇报？", rows, embedding=lambda texts: vectors)
+    assert [row["reference_id"] for row in result] == ["action", "statistics"]
+    assert result[0]["semantic_score"] > result[1]["semantic_score"]
+    assert result[0]["lexical_score"] < result[1]["lexical_score"]
 
 
 def test_exact_standard_priority_survives_a_higher_unrelated_vector_score(retrieve):

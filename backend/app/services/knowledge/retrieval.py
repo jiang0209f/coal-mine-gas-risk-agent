@@ -24,17 +24,21 @@ _CONCEPTS = {
     "瓦斯": ("瓦斯", "甲烷", "methane", "gas"),
     "传感器": ("传感器", "探头", "测头", "sensor", "detector"),
     "超限": ("超限", "超标", "超过限值", "超过阈值", "浓度过高"),
-    "断电": ("断电", "切断电源", "断开电源", "停电"),
-    "恢复供电": ("恢复供电", "恢复送电", "重新送电", "重新供电", "复电", "送电"),
-    "撤离": ("撤离", "撤人", "撤出人员", "人员撤出", "疏散"),
-    "调校": ("调校", "标校", "校准", "标定", "calibration", "calibrate"),
+    "断电": ("断电", "切断电源", "断开电源", "停电", "停止全部电路", "停止所有电路", "停止工作面所有电路", "停止工作面全部电路"),
+    "恢复供电": ("恢复供电", "恢复送电", "重新送电", "重新供电", "复电", "送电", "合闸"),
+    "撤离": ("撤离", "撤人", "撤出人员", "人员撤出", "疏散", "避灾路线", "逃生路线"),
+    "调校": ("调校", "标校", "校准", "标定", "标气", "用气样", "气样校表", "calibration", "calibrate"),
     "抽采": ("抽采", "抽放"),
-    "通风": ("通风", "换气", "ventilation"),
+    "通风": ("通风", "换气", "风路", "主扇", "主风机", "大风机", "主要通风机", "ventilation"),
     "复工": ("复工", "复产", "恢复作业", "恢复生产"),
     "应急预案": ("应急预案", "现场处置方案", "应急处置"),
     "预测": ("预测", "预报", "forecast"),
     "预警": ("预警", "告警", "报警", "warning"),
     "溯源": ("溯源", "成因", "causation"),
+    "主机热备": ("双机热备", "备用主机", "热备"),
+    "断线补传": ("补传", "重连补数", "历史补数"),
+    "备份恢复": ("备份恢复", "数据恢复", "恢复验证", "验证能否恢复"),
+    "记录更正": ("覆盖旧数", "覆盖原值", "修改原值", "改写原始数据", "修改原始数据"),
 }
 _GENERIC_CONCEPTS = {"瓦斯", "传感器"}
 _MIN_COSINE = 0.60
@@ -87,7 +91,26 @@ def _concepts(text):
         if alias.isascii():
             return re.search(r"(?<![a-z0-9_])" + re.escape(alias) + r"(?![a-z0-9_])", text) is not None
         return alias in text
-    return {concept for concept, aliases in _CONCEPTS.items() if any(contains(alias) for alias in aliases)}
+    concepts = {concept for concept, aliases in _CONCEPTS.items() if any(contains(alias) for alias in aliases)}
+    if (any(word in text for word in ("遇险", "事故", "灾害", "爆炸", "火灾"))
+            and any(word in text for word in ("遇险", "发生", "突发", "遭遇", "井下"))
+            and any(word in text for word in ("离开", "出去", "逃生", "逃离", "脱险"))):
+        concepts.add("撤离")
+    if ("电源" in text and "接通" in text
+            and any(word in text for word in ("瓦斯", "甲烷", "浓度", "读数", "断电", "停电", "复电"))):
+        concepts.add("恢复供电")
+    if "还原" in text and any(word in text for word in ("数据库", "备份", "拷贝", "副本", "本机库", "监测")):
+        concepts.add("备份恢复")
+    if (re.search(r"备用机(?!组)", text)
+            and any(word in text for word in ("监控", "电脑", "主机", "中心站", "计算机", "双机"))):
+        concepts.add("主机热备")
+    if ("补来的" in text
+            and any(word in text for word in ("当前值", "测值", "数值", "读数", "数据", "采样", "补数"))):
+        concepts.add("断线补传")
+    if (any(word in text for word in ("更正", "新修订"))
+            and any(word in text for word in ("数据", "监测", "原始记录", "原记录", "采样", "点位", "读数", "旧数", "原值", "曲线"))):
+        concepts.add("记录更正")
+    return concepts
 
 
 def _long_phrases(query):
@@ -215,7 +238,7 @@ def retrieve(query: str, candidates: Sequence[Mapping], embedding: Callable | No
             lexical_signal = False
         if not exact and not lexical_signal and not (semantic is not None and semantic >= _MIN_COSINE):
             continue
-        base_score = lexical if semantic is None else 0.6 * lexical + 0.4 * semantic
+        base_score = lexical if semantic is None else 0.5 * lexical + 0.5 * semantic
         score = 0.9 + 0.1 * base_score if exact else 0.85 * base_score
         reasons = (["编号匹配：" + value for value in exact]
                    + ["同义词匹配：" + value for value in matched_concepts])

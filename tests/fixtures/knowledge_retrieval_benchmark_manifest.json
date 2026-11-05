@@ -1,0 +1,66 @@
+{
+  "schema_version": "synthetic-knowledge-benchmark-freeze-v1",
+  "frozen_at": "2026-11-05T01:17:39.963999+00:00",
+  "revision": "benchmark-v1",
+  "topics": 12,
+  "candidates": 36,
+  "positive_queries": 48,
+  "negative_queries": 24,
+  "background_probes": 6,
+  "split_counts": {
+    "dev": 39,
+    "heldout": 39
+  },
+  "files": {
+    "dev_and_candidates": {
+      "path": "knowledge_retrieval_benchmark.json",
+      "sha256": "fa5b25806696984903f1077f56cce8809a5d45c25c0c17c67a16bd29ef3e32b8"
+    },
+    "heldout": {
+      "path": "knowledge_retrieval_heldout.json",
+      "sha256": "f35ef5a3b994ea72911eccd84a03fe689058d82df1d6bfd86120dbf5d3ae7ebf"
+    }
+  },
+  "heldout_query_ids": [
+    "escape_route-q3",
+    "escape_route-q4",
+    "fan_stop-q3",
+    "fan_stop-q4",
+    "manual_power-q3",
+    "manual_power-q4",
+    "calibration-q3",
+    "calibration-q4",
+    "monitor_fault-q3",
+    "monitor_fault-q4",
+    "alarm_evidence-q3",
+    "alarm_evidence-q4",
+    "data_backup-q3",
+    "data_backup-q4",
+    "record_history-q3",
+    "record_history-q4",
+    "drainage_evidence-q3",
+    "drainage_evidence-q4",
+    "forecast_vs_observed-q3",
+    "forecast_vs_observed-q4",
+    "human_review-q3",
+    "human_review-q4",
+    "knowledge_currency-q3",
+    "knowledge_currency-q4",
+    "negative-02",
+    "negative-04",
+    "negative-06",
+    "negative-08",
+    "negative-10",
+    "negative-12",
+    "negative-14",
+    "negative-16",
+    "negative-18",
+    "negative-20",
+    "negative-22",
+    "negative-24",
+    "background-02",
+    "background-04",
+    "background-06"
+  ],
+  "freeze_policy": "实现优化只使用dev；heldout在最终独立回归时解封。不得依据检索结果改写问题或支持标签。"
+}

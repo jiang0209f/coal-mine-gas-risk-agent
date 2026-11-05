@@ -1,6 +1,7 @@
 """Public normative exports stay version-bound; private field content stays local."""
 from datetime import datetime, timezone
 import json
+import math
 
 import pytest
 
@@ -58,6 +59,24 @@ def test_public_only_search_and_export_projection_hide_all_private_metadata(part
     assert exported["state"] == "approved" and exported["effective"] is True
     assert exported["locator"] == {"page": 7, "clause": "8.4.6"}
     assert not any(value in raw for value in ("PRIVATE-TEXT", "PRIVATE-PATH", "FACE-PRIVATE", "manager-private", "session-private", "source-private"))
+
+
+def test_semantic_recall_filters_private_candidates_before_embedding(parts):
+    _, _, context, knowledge = parts
+    public_text = "发生事故后应按避灾路线撤离危险区域，核对出口与安全路线。"
+    public = material(parts, public_text, title="事故处置")
+    material(parts, "PRIVATE-TEXT-DO-NOT-SEND 避灾路线。", title="现场资料")
+    publish(parts, public)
+    batches = []
+    def embedding(texts):
+        batches.append(list(texts))
+        return [[1, 0], *[[0.5787, math.sqrt(1 - 0.5787 ** 2)] for _ in texts[1:]]]
+    knowledge.embedding = embedding
+    hits = knowledge.search_public_documents(context, "遇险时人员从哪里离开")
+    assert [row["entry_id"] for row in hits] == [public["entry_id"]]
+    assert len(batches) == 1 and len(batches[0]) == 2
+    assert "PRIVATE-TEXT" not in json.dumps(batches)
+    assert knowledge.approved_public_fragment(context, hits[0]["reference_id"])["text"] == public_text
 
 
 @pytest.mark.parametrize("url", ["http://www.mem.gov.cn/test.pdf", "https://www.mem.gov.cn.attacker.test/x", "https://mem.gov.cn@attacker.test/x", "file:///F:/private.pdf", "https://attacker.test/?source=mem.gov.cn"])

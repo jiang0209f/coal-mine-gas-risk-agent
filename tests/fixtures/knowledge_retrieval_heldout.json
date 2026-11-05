@@ -1,0 +1,584 @@
+{
+  "schema_version": "synthetic-knowledge-retrieval-v1",
+  "labeling_policy": "只有提供问题所需信息的段落才标支持；同词、相近主题或仅说明记录字段不算提供实际记录内容。",
+  "provenance": "全部为独立编写的合成段落与问题，未取用生产资料；不作为现场操作依据。",
+  "split_protocol": "每主题q1/q2为dev、q3/q4为heldout；严格阴性和背景探针分别按预设顺序奇数dev偶数heldout，先冻结再运行检索。",
+  "candidate_source": "knowledge_retrieval_benchmark.json",
+  "queries": [
+    {
+      "query_id": "escape_route-q3",
+      "topic_id": "escape_route",
+      "split": "heldout",
+      "label": "supported",
+      "query": "险情发生后怎样确认从当前位置通往安全出口的那条路？",
+      "supporting_reference_ids": [
+        "bench-escape_route-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-escape_route-distractor-1",
+        "bench-escape_route-distractor-2"
+      ],
+      "required_information": "依据路线图并核对当前位置与路线可通行情况。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "escape_route-q4",
+      "topic_id": "escape_route",
+      "split": "heldout",
+      "label": "supported",
+      "query": "有危险要往哪儿走才能离开现场，确定去向要看些什么？",
+      "supporting_reference_ids": [
+        "bench-escape_route-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-escape_route-distractor-1",
+        "bench-escape_route-distractor-2"
+      ],
+      "required_information": "撤离路径的图示依据和位置、出口、集合点信息。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "fan_stop-q3",
+      "topic_id": "fan_stop",
+      "split": "heldout",
+      "label": "supported",
+      "query": "作业区没了新鲜风，还能待在里面等修好吗？",
+      "supporting_reference_ids": [
+        "bench-fan_stop-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-fan_stop-distractor-1",
+        "bench-fan_stop-distractor-2"
+      ],
+      "required_information": "停止受影响区作业并组织人员撤出。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "fan_stop-q4",
+      "topic_id": "fan_stop",
+      "split": "heldout",
+      "label": "supported",
+      "query": "风突然不往迎头送了，人员离开和再次进去分别依据什么？",
+      "supporting_reference_ids": [
+        "bench-fan_stop-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-fan_stop-distractor-1",
+        "bench-fan_stop-distractor-2"
+      ],
+      "required_information": "依停风处置卡撤离，恢复供风并核对现场检查后再进入。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "manual_power-q3",
+      "topic_id": "manual_power",
+      "split": "heldout",
+      "label": "supported",
+      "query": "数值退回正常区间，是不是就可以自行合闸？",
+      "supporting_reference_ids": [
+        "bench-manual_power-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-manual_power-distractor-1",
+        "bench-manual_power-distractor-2"
+      ],
+      "required_information": "检测恢复正常和授权人工送电是不同条件。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "manual_power-q4",
+      "topic_id": "manual_power",
+      "split": "heldout",
+      "label": "supported",
+      "query": "恢复能源供给前，还要核对哪些签批与检查材料？",
+      "supporting_reference_ids": [
+        "bench-manual_power-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-manual_power-distractor-1",
+        "bench-manual_power-distractor-2"
+      ],
+      "required_information": "触发原因处理情况、检查记录齐全及批准依据。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "calibration-q3",
+      "topic_id": "calibration",
+      "split": "heldout",
+      "label": "supported",
+      "query": "拿标准气样比对读数并调整零点和量程，完成后要保存什么？",
+      "supporting_reference_ids": [
+        "bench-calibration-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-calibration-distractor-1",
+        "bench-calibration-distractor-2"
+      ],
+      "required_information": "调校前后示值、气样编号、人员和完成时间。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "calibration-q4",
+      "topic_id": "calibration",
+      "split": "heldout",
+      "label": "supported",
+      "query": "探头调好后，哪些比对信息要一并记下来？",
+      "supporting_reference_ids": [
+        "bench-calibration-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-calibration-distractor-1",
+        "bench-calibration-distractor-2"
+      ],
+      "required_information": "前后示值及使用气样、调校人员和完成时刻。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "monitor_fault-q3",
+      "topic_id": "monitor_fault",
+      "split": "heldout",
+      "label": "supported",
+      "query": "界面不再更新，怎样留下失联区间并补回缺口的时序？",
+      "supporting_reference_ids": [
+        "bench-monitor_fault-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-monitor_fault-distractor-1",
+        "bench-monitor_fault-distractor-2"
+      ],
+      "required_information": "记录最后接收和断线区间，补传按原采样时间。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "monitor_fault-q4",
+      "topic_id": "monitor_fault",
+      "split": "heldout",
+      "label": "supported",
+      "query": "断网时看到的那个数还能算刚采的吗，后来收到的数据要标哪两个时间？",
+      "supporting_reference_ids": [
+        "bench-monitor_fault-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-monitor_fault-distractor-1",
+        "bench-monitor_fault-distractor-2"
+      ],
+      "required_information": "失联旧值不能作为新观测，分别标采样时间与接收时间。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "alarm_evidence-q3",
+      "topic_id": "alarm_evidence",
+      "split": "heldout",
+      "label": "supported",
+      "query": "这次告警当时凭什么判出来，事后能查到什么证据？",
+      "supporting_reference_ids": [
+        "bench-alarm_evidence-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-alarm_evidence-distractor-1",
+        "bench-alarm_evidence-distractor-2"
+      ],
+      "required_information": "保留触发事件的原始观测与阈值版本等信息。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "alarm_evidence-q4",
+      "topic_id": "alarm_evidence",
+      "split": "heldout",
+      "label": "supported",
+      "query": "告警消掉以后还应留下哪些当时的判断依据？",
+      "supporting_reference_ids": [
+        "bench-alarm_evidence-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-alarm_evidence-distractor-1",
+        "bench-alarm_evidence-distractor-2"
+      ],
+      "required_information": "解除不删除事件的触发观测、时刻与阈值版本。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "data_backup-q3",
+      "topic_id": "data_backup",
+      "split": "heldout",
+      "label": "supported",
+      "query": "怎么证明备份在真正需要时能恢复到预期时间？",
+      "supporting_reference_ids": [
+        "bench-data_backup-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-data_backup-distractor-1",
+        "bench-data_backup-distractor-2"
+      ],
+      "required_information": "恢复试验结果与可恢复时间点记录。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "data_backup-q4",
+      "topic_id": "data_backup",
+      "split": "heldout",
+      "label": "supported",
+      "query": "还原时需要核对完整性并留下哪些时点信息？",
+      "supporting_reference_ids": [
+        "bench-data_backup-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-data_backup-distractor-1",
+        "bench-data_backup-distractor-2"
+      ],
+      "required_information": "备份完整性、所用版本和恢复到的时间点。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "record_history-q3",
+      "topic_id": "record_history",
+      "split": "heldout",
+      "label": "supported",
+      "query": "原始数被纠正以后，怎样还原当时写了什么？",
+      "supporting_reference_ids": [
+        "bench-record_history-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-record_history-distractor-1",
+        "bench-record_history-distractor-2"
+      ],
+      "required_information": "依据保留的原记录和历史修订回查。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "record_history-q4",
+      "topic_id": "record_history",
+      "split": "heldout",
+      "label": "supported",
+      "query": "追查某个数是谁何时因何改的，需要留下什么链条？",
+      "supporting_reference_ids": [
+        "bench-record_history-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-record_history-distractor-1",
+        "bench-record_history-distractor-2"
+      ],
+      "required_information": "更正原因、人员、时间和原记录与新修订的对应关系。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "drainage_evidence-q3",
+      "topic_id": "drainage_evidence",
+      "split": "heldout",
+      "label": "supported",
+      "query": "巷道里的气体数值低，能直接断定孔里抽得合格吗？",
+      "supporting_reference_ids": [
+        "bench-drainage_evidence-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-drainage_evidence-distractor-1",
+        "bench-drainage_evidence-distractor-2"
+      ],
+      "required_information": "效果评判须结合钻孔与计量、检验资料。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "drainage_evidence-q4",
+      "topic_id": "drainage_evidence",
+      "split": "heldout",
+      "label": "supported",
+      "query": "核查孔里抽走气体的效果，证据要由哪些资料组成？",
+      "supporting_reference_ids": [
+        "bench-drainage_evidence-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-drainage_evidence-distractor-1",
+        "bench-drainage_evidence-distractor-2"
+      ],
+      "required_information": "钻孔范围、计量原始、浓度流量和效果检验资料。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "forecast_vs_observed-q3",
+      "topic_id": "forecast_vs_observed",
+      "split": "heldout",
+      "label": "supported",
+      "query": "红色虚线是将来的估计，能写进已经发生的超限记录吗？",
+      "supporting_reference_ids": [
+        "bench-forecast_vs_observed-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-forecast_vs_observed-distractor-1",
+        "bench-forecast_vs_observed-distractor-2"
+      ],
+      "required_information": "未来预测不作为既成事实，需分开保存。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "forecast_vs_observed-q4",
+      "topic_id": "forecast_vs_observed",
+      "split": "heldout",
+      "label": "supported",
+      "query": "把未来估算和现场已测到的值放在一起时，怎么区分事实依据？",
+      "supporting_reference_ids": [
+        "bench-forecast_vs_observed-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-forecast_vs_observed-distractor-1",
+        "bench-forecast_vs_observed-distractor-2"
+      ],
+      "required_information": "以采样时刻和质量合格的原值判事实，预测另存模型与时点。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "human_review-q3",
+      "topic_id": "human_review",
+      "split": "heldout",
+      "label": "supported",
+      "query": "操作者提交以后，什么审核状态才算完整闭环？",
+      "supporting_reference_ids": [
+        "bench-human_review-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-human_review-distractor-1",
+        "bench-human_review-distractor-2"
+      ],
+      "required_information": "复核意见和时间齐全，批准状态满足闭环条件。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "human_review-q4",
+      "topic_id": "human_review",
+      "split": "heldout",
+      "label": "supported",
+      "query": "追查当时处置经过，应能找到哪些责任和签批记录？",
+      "supporting_reference_ids": [
+        "bench-human_review-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-human_review-distractor-1",
+        "bench-human_review-distractor-2"
+      ],
+      "required_information": "处置人及措施、提交时刻、复核意见、复核时刻和批准状态。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "knowledge_currency-q3",
+      "topic_id": "knowledge_currency",
+      "split": "heldout",
+      "label": "supported",
+      "query": "回放过去的曲线时，今天给建议该查哪个有效版本？",
+      "supporting_reference_ids": [
+        "bench-knowledge_currency-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-knowledge_currency-distractor-1",
+        "bench-knowledge_currency-distractor-2"
+      ],
+      "required_information": "按当前核验时点与批准状态选版本，历史引用仍可回查。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "knowledge_currency-q4",
+      "topic_id": "knowledge_currency",
+      "split": "heldout",
+      "label": "supported",
+      "query": "看到了当年的依据，现在还能照那个版本直接给建议吗？",
+      "supporting_reference_ids": [
+        "bench-knowledge_currency-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-knowledge_currency-distractor-1",
+        "bench-knowledge_currency-distractor-2"
+      ],
+      "required_information": "需确认其当前有效和批准状态，保留历史引用不等于当前适用。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "negative-02",
+      "topic_id": "cross_topic",
+      "split": "heldout",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "这个项目工资每月哪天发？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有薪资发放日期。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-04",
+      "topic_id": "cross_topic",
+      "split": "heldout",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "住房公积金提取到哪个网站办理？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有公积金办理渠道。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-06",
+      "topic_id": "cross_topic",
+      "split": "heldout",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "四岁儿童适合读哪本绘本？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有儿童读物推荐。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-08",
+      "topic_id": "cross_topic",
+      "split": "heldout",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "去上海的航班明天几点起飞？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有航班时刻。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-10",
+      "topic_id": "cross_topic",
+      "split": "heldout",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "股票下周应该买哪只？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有金融行情或投资依据。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-12",
+      "topic_id": "cross_topic",
+      "split": "heldout",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "婚礼照片怎么调成暖色？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有照片后期处理方法。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-14",
+      "topic_id": "near_domain_missing",
+      "split": "heldout",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "甲烷报警阈值具体是百分之几？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "只说明配置阈值与版本留存，没有数值阈值。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-16",
+      "topic_id": "near_domain_missing",
+      "split": "heldout",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "监控原始数据到底保存多少年？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "记录段未给保存期限。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-18",
+      "topic_id": "near_domain_missing",
+      "split": "heldout",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "这批传感器出厂校准证书的编号是什么？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有实际出厂证书或证书编号。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-20",
+      "topic_id": "near_domain_missing",
+      "split": "heldout",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "现有模型下周预测误差会是多少？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有该模型的性能数据或未来评测结果。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-22",
+      "topic_id": "near_domain_missing",
+      "split": "heldout",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "这条撤离路径实际一共长多少米？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "路线段没有实际路径长度或坐标。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-24",
+      "topic_id": "near_domain_missing",
+      "split": "heldout",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "抽采流量必须达到多少才算达标？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "抽采段未规定任何流量数值标准。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "background-02",
+      "topic_id": "unverified_field_fact",
+      "split": "heldout",
+      "label": "unsupported",
+      "retrieval_expectation": "background_allowed",
+      "query": "31002工作面今天最高甲烷浓度是多少？",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "bench-forecast_vs_observed-support",
+        "bench-record_history-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "事实判定与记录字段说明不能提供当天最高实际观测值。",
+      "annotation_reason": "可返回标注的规范背景，但背景不支持所问实际事实；单独报告，不把背景命中判为事实生成错误。"
+    },
+    {
+      "query_id": "background-04",
+      "topic_id": "unverified_field_fact",
+      "split": "heldout",
+      "label": "unsupported",
+      "retrieval_expectation": "background_allowed",
+      "query": "这次超限就是通风故障导致的吗？",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "bench-fan_stop-support",
+        "bench-monitor_fault-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "停风与监控故障处置背景无法证明本次事件的根因。",
+      "annotation_reason": "可返回标注的规范背景，但背景不支持所问实际事实；单独报告，不把背景命中判为事实生成错误。"
+    },
+    {
+      "query_id": "background-06",
+      "topic_id": "unverified_field_fact",
+      "split": "heldout",
+      "label": "unsupported",
+      "retrieval_expectation": "background_allowed",
+      "query": "现在这份备份已成功恢复到昨天了吗？",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "bench-data_backup-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "备份恢复验证程序不能证明实际已完成恢复。",
+      "annotation_reason": "可返回标注的规范背景，但背景不支持所问实际事实；单独报告，不把背景命中判为事实生成错误。"
+    }
+  ]
+}

@@ -1,0 +1,1079 @@
+{
+  "schema_version": "synthetic-knowledge-retrieval-v1",
+  "labeling_policy": "只有提供问题所需信息的段落才标支持；同词、相近主题或仅说明记录字段不算提供实际记录内容。",
+  "provenance": "全部为独立编写的合成段落与问题，未取用生产资料；不作为现场操作依据。",
+  "split_protocol": "每主题q1/q2为dev、q3/q4为heldout；严格阴性和背景探针分别按预设顺序奇数dev偶数heldout，先冻结再运行检索。",
+  "topics": [
+    {
+      "topic_id": "escape_route",
+      "name": "逃生路线",
+      "supporting_reference_ids": [
+        "bench-escape_route-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-escape_route-distractor-1",
+        "bench-escape_route-distractor-2"
+      ]
+    },
+    {
+      "topic_id": "fan_stop",
+      "name": "停风撤人",
+      "supporting_reference_ids": [
+        "bench-fan_stop-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-fan_stop-distractor-1",
+        "bench-fan_stop-distractor-2"
+      ]
+    },
+    {
+      "topic_id": "manual_power",
+      "name": "人工复电",
+      "supporting_reference_ids": [
+        "bench-manual_power-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-manual_power-distractor-1",
+        "bench-manual_power-distractor-2"
+      ]
+    },
+    {
+      "topic_id": "calibration",
+      "name": "传感器调校",
+      "supporting_reference_ids": [
+        "bench-calibration-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-calibration-distractor-1",
+        "bench-calibration-distractor-2"
+      ]
+    },
+    {
+      "topic_id": "monitor_fault",
+      "name": "监控故障",
+      "supporting_reference_ids": [
+        "bench-monitor_fault-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-monitor_fault-distractor-1",
+        "bench-monitor_fault-distractor-2"
+      ]
+    },
+    {
+      "topic_id": "alarm_evidence",
+      "name": "报警依据",
+      "supporting_reference_ids": [
+        "bench-alarm_evidence-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-alarm_evidence-distractor-1",
+        "bench-alarm_evidence-distractor-2"
+      ]
+    },
+    {
+      "topic_id": "data_backup",
+      "name": "数据备份恢复",
+      "supporting_reference_ids": [
+        "bench-data_backup-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-data_backup-distractor-1",
+        "bench-data_backup-distractor-2"
+      ]
+    },
+    {
+      "topic_id": "record_history",
+      "name": "原始记录与更正历史",
+      "supporting_reference_ids": [
+        "bench-record_history-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-record_history-distractor-1",
+        "bench-record_history-distractor-2"
+      ]
+    },
+    {
+      "topic_id": "drainage_evidence",
+      "name": "抽采效果资料",
+      "supporting_reference_ids": [
+        "bench-drainage_evidence-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-drainage_evidence-distractor-1",
+        "bench-drainage_evidence-distractor-2"
+      ]
+    },
+    {
+      "topic_id": "forecast_vs_observed",
+      "name": "预测与事实区分",
+      "supporting_reference_ids": [
+        "bench-forecast_vs_observed-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-forecast_vs_observed-distractor-1",
+        "bench-forecast_vs_observed-distractor-2"
+      ]
+    },
+    {
+      "topic_id": "human_review",
+      "name": "人工处置审批",
+      "supporting_reference_ids": [
+        "bench-human_review-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-human_review-distractor-1",
+        "bench-human_review-distractor-2"
+      ]
+    },
+    {
+      "topic_id": "knowledge_currency",
+      "name": "知识版本与效期",
+      "supporting_reference_ids": [
+        "bench-knowledge_currency-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-knowledge_currency-distractor-1",
+        "bench-knowledge_currency-distractor-2"
+      ]
+    }
+  ],
+  "candidates": [
+    {
+      "reference_id": "bench-escape_route-support",
+      "title": "逃生路线（合成评测）",
+      "text": "遇险人员沿避灾路线图标示的路径撤离危险区域。决定往哪里离开时，应同时核对人员当前位置、路线可通行情况、可用安全出口和指定集合点。",
+      "locator": {
+        "page": 1,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-escape_route-distractor-1",
+      "title": "集合点签到（合成评测）",
+      "text": "人员到达集合点后登记姓名、班组和到达时间；签到记录用于清点已经到达的人数。",
+      "locator": {
+        "page": 1,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-escape_route-distractor-2",
+      "title": "路线图归档（合成评测）",
+      "text": "图纸资料员登记避灾路线图的文件名、制图日期和存储位置，定期检查图纸文件能否正常打开。",
+      "locator": {
+        "page": 1,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-fan_stop-support",
+      "title": "停风撤人（合成评测）",
+      "text": "局部通风机停止供风时，现场负责人按停风处置卡停止受影响区域作业、断开相关设备电源，组织人员撤至规定地点并报告调度。重新进入前核对供风恢复及现场检查记录。",
+      "locator": {
+        "page": 2,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-fan_stop-distractor-1",
+      "title": "风机日常保养（合成评测）",
+      "text": "通风机正常运转期间按检修计划核对轴承、润滑和振动记录，并登记保养人员。",
+      "locator": {
+        "page": 2,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-fan_stop-distractor-2",
+      "title": "监控终端停机（合成评测）",
+      "text": "地面监控电脑停机维护时保存软件配置，维护后检查页面和软件服务是否启动。",
+      "locator": {
+        "page": 2,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-manual_power-support",
+      "title": "人工复电（合成评测）",
+      "text": "报警断电后的送电由授权人员手动执行。执行前应确认触发原因已处理、现场检查记录齐全并取得批准。浓度显示恢复正常只代表检测结果变化，不能直接触发自动合闸。",
+      "locator": {
+        "page": 3,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-manual_power-distractor-1",
+      "title": "网络自动重连（合成评测）",
+      "text": "客户端与采集服务连接中断后可自动重连，恢复的是网络会话和消息传输。",
+      "locator": {
+        "page": 3,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-manual_power-distractor-2",
+      "title": "开关器件台账（合成评测）",
+      "text": "开关器件台账登记设备型号、额定参数和安装日期，用于备件管理及检修安排。",
+      "locator": {
+        "page": 3,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-calibration-support",
+      "title": "传感器调校（合成评测）",
+      "text": "用规定的标准气样核对甲烷传感器示值，完成调零和量程调整。调校记录保存调整前后示值、使用的气样编号、调校人员和完成时间。",
+      "locator": {
+        "page": 4,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-calibration-distractor-1",
+      "title": "传感器安装台账（合成评测）",
+      "text": "设备安装台账登记传感器编号、安装位置、所属分站和安装人员，便于查找设备。",
+      "locator": {
+        "page": 4,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-calibration-distractor-2",
+      "title": "传感器采购验收（合成评测）",
+      "text": "采购验收核对设备型号、数量、到货清单和外观完好情况，并登记收货人员。",
+      "locator": {
+        "page": 4,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-monitor_fault-support",
+      "title": "监控故障（合成评测）",
+      "text": "监控终端失联时记录最后一次成功接收时刻、断线区间与故障状态，检查采集链路。通信恢复后的补传数据保留原采样时间，并单独标注接收时间；失联区间不以旧值当作新观测。",
+      "locator": {
+        "page": 5,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-monitor_fault-distractor-1",
+      "title": "浓度报警触发（合成评测）",
+      "text": "有质量合格的新观测达到配置阈值时，报警事件保存触发值、测点和触发时间。",
+      "locator": {
+        "page": 5,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-monitor_fault-distractor-2",
+      "title": "显示配色设置（合成评测）",
+      "text": "界面配色设置决定正常数值、报警图标和图例的颜色，设置后检查不同窗口尺寸下的显示。",
+      "locator": {
+        "page": 5,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-alarm_evidence-support",
+      "title": "报警依据（合成评测）",
+      "text": "达到配置阈值的合格观测触发报警事件。事件条目保留测点、等级、触发时刻、触发观测原值和阈值版本，用这些信息回查当时为何报警；解除后仍保留原事件依据。",
+      "locator": {
+        "page": 6,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-alarm_evidence-distractor-1",
+      "title": "报警界面样式（合成评测）",
+      "text": "报警列表的图标、字体颜色和闪烁方式由界面主题控制，用户可调整列表列宽。",
+      "locator": {
+        "page": 6,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-alarm_evidence-distractor-2",
+      "title": "报警统计报表（合成评测）",
+      "text": "统计报表汇总本月各等级报警的数量，并按班次绘制数量变化图。",
+      "locator": {
+        "page": 6,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-data_backup-support",
+      "title": "数据备份恢复（合成评测）",
+      "text": "备份任务保存数据库快照及其校验摘要。恢复前检查备份完整性，在独立目录验证能否恢复，并记录采用的备份版本、恢复验证结果和可恢复到的时间点。",
+      "locator": {
+        "page": 7,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-data_backup-distractor-1",
+      "title": "数据导出报表（合成评测）",
+      "text": "报表导出把选定时间段的数据写为表格，导出结果用于阅读和统计，附带列名和单位。",
+      "locator": {
+        "page": 7,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-data_backup-distractor-2",
+      "title": "界面偏好保存（合成评测）",
+      "text": "个人界面设置保存图表颜色、常用筛选条件和面板宽度，重新打开页面后加载偏好。",
+      "locator": {
+        "page": 7,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-record_history-support",
+      "title": "原始记录与更正历史（合成评测）",
+      "text": "监测原始记录保存采样时间、到达时间、点位与原值。错误更正采用新修订并保留原记录，同时登记更正原因、操作人员和更正时间，支持按历史修订回查当时记录。",
+      "locator": {
+        "page": 8,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-record_history-distractor-1",
+      "title": "历史曲线缩放（合成评测）",
+      "text": "历史曲线页面按选定时间区间缩放横轴，用户可以隐藏曲线或改变折线颜色。",
+      "locator": {
+        "page": 8,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-record_history-distractor-2",
+      "title": "缓存过期清理（合成评测）",
+      "text": "页面缓存清理仅删除临时图像和重复下载文件，使下次访问重新加载页面资源。",
+      "locator": {
+        "page": 8,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-drainage_evidence-support",
+      "title": "抽采效果资料（合成评测）",
+      "text": "抽采效果评判结合钻孔控制范围、计量原始记录、抽采浓度与流量记录和效果检验资料形成依据。单一监控甲烷浓度读数不足以代替抽采效果评判。",
+      "locator": {
+        "page": 9,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-drainage_evidence-distractor-1",
+      "title": "抽采设备采购（合成评测）",
+      "text": "抽采泵采购记录保存型号、价格、供应商和到货时间，用于资产和合同管理。",
+      "locator": {
+        "page": 9,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-drainage_evidence-distractor-2",
+      "title": "瓦斯监测点位（合成评测）",
+      "text": "监测点位表记录甲烷测点的编号、位置和所属分站，用于定位监测数据来自何处。",
+      "locator": {
+        "page": 9,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-forecast_vs_observed-support",
+      "title": "预测与事实区分（合成评测）",
+      "text": "预测曲线表示模型对未来窗口的估计。实际超限结论依据已经到达的监测原值、采样时间及质量标记；未来预测值不能登记为已经发生的监测事实，预测结果应单独保存模型和预测时点。",
+      "locator": {
+        "page": 10,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-forecast_vs_observed-distractor-1",
+      "title": "预测训练参数（合成评测）",
+      "text": "预测模型训练配置记录学习率、训练轮数和训练集划分，用于复现实验。",
+      "locator": {
+        "page": 10,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-forecast_vs_observed-distractor-2",
+      "title": "超限事件汇总（合成评测）",
+      "text": "事件汇总统计已经登记的超限次数，并按点位和日期排列汇总行。",
+      "locator": {
+        "page": 10,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-human_review-support",
+      "title": "人工处置审批（合成评测）",
+      "text": "处置人提交核查结果、采取的措施及提交时间后，由复核人登记审核意见、复核时间和批准状态。只有处置与复核信息齐全且批准状态满足闭环条件，任务才登记完成，原始操作记录继续保留。",
+      "locator": {
+        "page": 11,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-human_review-distractor-1",
+      "title": "人员培训签到（合成评测）",
+      "text": "培训签到登记参加人员、课程名称、授课时间和出勤情况，用于核对培训完成。",
+      "locator": {
+        "page": 11,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-human_review-distractor-2",
+      "title": "意见草稿保存（合成评测）",
+      "text": "意见草稿可由编写人保存和继续编辑，草稿记录文字内容及最近编辑时间。",
+      "locator": {
+        "page": 11,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-knowledge_currency-support",
+      "title": "知识版本与效期（合成评测）",
+      "text": "无论所看监测数据来自何时，当前建议检索均选择已批准且在当前核验时点有效的资料版本。新版获批后替代旧版参与当前检索；历史引用保留旧版本和页段定位以供回查。",
+      "locator": {
+        "page": 12,
+        "paragraph": "support"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-knowledge_currency-distractor-1",
+      "title": "资料文件上传（合成评测）",
+      "text": "文件上传登记文件名、大小、摘要和上传时间，方便检查上传文件是否完整。",
+      "locator": {
+        "page": 12,
+        "paragraph": "distractor-1"
+      },
+      "version": "synthetic-benchmark-v1"
+    },
+    {
+      "reference_id": "bench-knowledge_currency-distractor-2",
+      "title": "历史资料目录（合成评测）",
+      "text": "历史目录按出版年份列出资料标题及存放路径，用于查找不同年代的文件原件。",
+      "locator": {
+        "page": 12,
+        "paragraph": "distractor-2"
+      },
+      "version": "synthetic-benchmark-v1"
+    }
+  ],
+  "queries": [
+    {
+      "query_id": "escape_route-q1",
+      "topic_id": "escape_route",
+      "split": "dev",
+      "label": "supported",
+      "query": "撤离时要根据路线图核对哪些位置和出口信息？",
+      "supporting_reference_ids": [
+        "bench-escape_route-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-escape_route-distractor-1",
+        "bench-escape_route-distractor-2"
+      ],
+      "required_information": "撤离路径及当前位置、通行情况、出口和集合点。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "escape_route-q2",
+      "topic_id": "escape_route",
+      "split": "dev",
+      "label": "supported",
+      "query": "遇险时人员从哪里离开，要查哪张图和哪些位置？",
+      "supporting_reference_ids": [
+        "bench-escape_route-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-escape_route-distractor-1",
+        "bench-escape_route-distractor-2"
+      ],
+      "required_information": "以避灾路线图核对当前位置、可用出口与集合点。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "fan_stop-q1",
+      "topic_id": "fan_stop",
+      "split": "dev",
+      "label": "supported",
+      "query": "局部风机停了，受影响区域的人和设备应怎样处置？",
+      "supporting_reference_ids": [
+        "bench-fan_stop-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-fan_stop-distractor-1",
+        "bench-fan_stop-distractor-2"
+      ],
+      "required_information": "停止作业、断开相关电源、撤至规定地点并报告。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "fan_stop-q2",
+      "topic_id": "fan_stop",
+      "split": "dev",
+      "label": "supported",
+      "query": "停止送风后能继续作业吗，现场还要核对什么才重新进入？",
+      "supporting_reference_ids": [
+        "bench-fan_stop-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-fan_stop-distractor-1",
+        "bench-fan_stop-distractor-2"
+      ],
+      "required_information": "停风处置和供风恢复后的进入前检查。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "manual_power-q1",
+      "topic_id": "manual_power",
+      "split": "dev",
+      "label": "supported",
+      "query": "报警断电后恢复供电，要满足哪些条件，由谁怎样执行？",
+      "supporting_reference_ids": [
+        "bench-manual_power-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-manual_power-distractor-1",
+        "bench-manual_power-distractor-2"
+      ],
+      "required_information": "原因处理、检查记录、批准和授权人员手动执行。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "manual_power-q2",
+      "topic_id": "manual_power",
+      "split": "dev",
+      "label": "supported",
+      "query": "读数降回正常就能让电源自己接通吗？",
+      "supporting_reference_ids": [
+        "bench-manual_power-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-manual_power-distractor-1",
+        "bench-manual_power-distractor-2"
+      ],
+      "required_information": "正常显示不能代替复电核验及人工合闸。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "calibration-q1",
+      "topic_id": "calibration",
+      "split": "dev",
+      "label": "supported",
+      "query": "甲烷传感器调校依据什么，并应留下哪些前后对比记录？",
+      "supporting_reference_ids": [
+        "bench-calibration-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-calibration-distractor-1",
+        "bench-calibration-distractor-2"
+      ],
+      "required_information": "标准气样、零点量程调整及前后示值记录。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "calibration-q2",
+      "topic_id": "calibration",
+      "split": "dev",
+      "label": "supported",
+      "query": "探头不准时怎样用标准样校准，调完记录什么？",
+      "supporting_reference_ids": [
+        "bench-calibration-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-calibration-distractor-1",
+        "bench-calibration-distractor-2"
+      ],
+      "required_information": "用规定气样核对示值，调零量程并保留调校记录。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "monitor_fault-q1",
+      "topic_id": "monitor_fault",
+      "split": "dev",
+      "label": "supported",
+      "query": "监控通信断线怎样记录，恢复后补传值的时间如何保留？",
+      "supporting_reference_ids": [
+        "bench-monitor_fault-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-monitor_fault-distractor-1",
+        "bench-monitor_fault-distractor-2"
+      ],
+      "required_information": "断线时刻与状态、原采样时间和接收时间分开。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "monitor_fault-q2",
+      "topic_id": "monitor_fault",
+      "split": "dev",
+      "label": "supported",
+      "query": "页面一直停着旧读数，恢复连接后能把补来的值当当前值吗？",
+      "supporting_reference_ids": [
+        "bench-monitor_fault-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-monitor_fault-distractor-1",
+        "bench-monitor_fault-distractor-2"
+      ],
+      "required_information": "旧值不是新观测，补传保留原采样及接收时刻。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "alarm_evidence-q1",
+      "topic_id": "alarm_evidence",
+      "split": "dev",
+      "label": "supported",
+      "query": "要解释某次报警为何触发，应保存哪些原始依据和版本？",
+      "supporting_reference_ids": [
+        "bench-alarm_evidence-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-alarm_evidence-distractor-1",
+        "bench-alarm_evidence-distractor-2"
+      ],
+      "required_information": "事件测点、等级、时刻、触发原值和阈值版本。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "alarm_evidence-q2",
+      "topic_id": "alarm_evidence",
+      "split": "dev",
+      "label": "supported",
+      "query": "为什么亮起告警不能只看颜色，还要回查哪些数据？",
+      "supporting_reference_ids": [
+        "bench-alarm_evidence-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-alarm_evidence-distractor-1",
+        "bench-alarm_evidence-distractor-2"
+      ],
+      "required_information": "通过触发观测和阈值版本解释报警。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "data_backup-q1",
+      "topic_id": "data_backup",
+      "split": "dev",
+      "label": "supported",
+      "query": "数据库备份怎样验证完整性和可恢复性，需要记录哪些版本时点？",
+      "supporting_reference_ids": [
+        "bench-data_backup-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-data_backup-distractor-1",
+        "bench-data_backup-distractor-2"
+      ],
+      "required_information": "校验摘要、独立恢复验证、版本及恢复时间点。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "data_backup-q2",
+      "topic_id": "data_backup",
+      "split": "dev",
+      "label": "supported",
+      "query": "本机库坏了，怎么证明那份拷贝真能还原？",
+      "supporting_reference_ids": [
+        "bench-data_backup-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-data_backup-distractor-1",
+        "bench-data_backup-distractor-2"
+      ],
+      "required_information": "先核对备份校验摘要并独立恢复验证。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "record_history-q1",
+      "topic_id": "record_history",
+      "split": "dev",
+      "label": "supported",
+      "query": "监测原始记录改错后怎样保留原值和修改历史？",
+      "supporting_reference_ids": [
+        "bench-record_history-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-record_history-distractor-1",
+        "bench-record_history-distractor-2"
+      ],
+      "required_information": "用新修订更正，保留原值并记录更正原因、人和时间。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "record_history-q2",
+      "topic_id": "record_history",
+      "split": "dev",
+      "label": "supported",
+      "query": "发现录入错了，是覆盖旧数还是另留一版，为什么？",
+      "supporting_reference_ids": [
+        "bench-record_history-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-record_history-distractor-1",
+        "bench-record_history-distractor-2"
+      ],
+      "required_information": "新修订保留旧记录以便历史回查。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "drainage_evidence-q1",
+      "topic_id": "drainage_evidence",
+      "split": "dev",
+      "label": "supported",
+      "query": "抽采效果评判需要哪些钻孔、计量和检验资料？",
+      "supporting_reference_ids": [
+        "bench-drainage_evidence-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-drainage_evidence-distractor-1",
+        "bench-drainage_evidence-distractor-2"
+      ],
+      "required_information": "钻孔控制、计量原始、浓度流量及效果检验资料。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "drainage_evidence-q2",
+      "topic_id": "drainage_evidence",
+      "split": "dev",
+      "label": "supported",
+      "query": "只看到一个甲烷读数很低，能证明抽放已经合格吗？",
+      "supporting_reference_ids": [
+        "bench-drainage_evidence-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-drainage_evidence-distractor-1",
+        "bench-drainage_evidence-distractor-2"
+      ],
+      "required_information": "单一监控浓度不能代替抽采效果评判。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "forecast_vs_observed-q1",
+      "topic_id": "forecast_vs_observed",
+      "split": "dev",
+      "label": "supported",
+      "query": "预测超过阈值和已发生超限分别依据什么，应如何分开记录？",
+      "supporting_reference_ids": [
+        "bench-forecast_vs_observed-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-forecast_vs_observed-distractor-1",
+        "bench-forecast_vs_observed-distractor-2"
+      ],
+      "required_information": "预测是未来估计，事实依据到达观测与采样和质量。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "forecast_vs_observed-q2",
+      "topic_id": "forecast_vs_observed",
+      "split": "dev",
+      "label": "supported",
+      "query": "模型说下一段会升高，现在就算已经超限了吗？",
+      "supporting_reference_ids": [
+        "bench-forecast_vs_observed-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-forecast_vs_observed-distractor-1",
+        "bench-forecast_vs_observed-distractor-2"
+      ],
+      "required_information": "未来估计不能代替已经到达的观测事实。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "human_review-q1",
+      "topic_id": "human_review",
+      "split": "dev",
+      "label": "supported",
+      "query": "人工处置怎样经过复核批准形成闭环，需要哪些记录？",
+      "supporting_reference_ids": [
+        "bench-human_review-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-human_review-distractor-1",
+        "bench-human_review-distractor-2"
+      ],
+      "required_information": "处置材料、提交时间、复核意见时间和批准状态。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "human_review-q2",
+      "topic_id": "human_review",
+      "split": "dev",
+      "label": "supported",
+      "query": "处置人把措施填完点提交，任务就算办完了吗？",
+      "supporting_reference_ids": [
+        "bench-human_review-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-human_review-distractor-1",
+        "bench-human_review-distractor-2"
+      ],
+      "required_information": "提交之后仍需复核信息齐全和批准状态满足条件。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "knowledge_currency-q1",
+      "topic_id": "knowledge_currency",
+      "split": "dev",
+      "label": "supported",
+      "query": "当前建议检索依据什么审核状态、效期和版本规则选资料？",
+      "supporting_reference_ids": [
+        "bench-knowledge_currency-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-knowledge_currency-distractor-1",
+        "bench-knowledge_currency-distractor-2"
+      ],
+      "required_information": "当前核验时点有效且已批准，新获批版本替代旧版。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "knowledge_currency-q2",
+      "topic_id": "knowledge_currency",
+      "split": "dev",
+      "label": "supported",
+      "query": "新版还没获批，旧批准资料什么时候才被替换？",
+      "supporting_reference_ids": [
+        "bench-knowledge_currency-support"
+      ],
+      "hard_negative_reference_ids": [
+        "bench-knowledge_currency-distractor-1",
+        "bench-knowledge_currency-distractor-2"
+      ],
+      "required_information": "新版获批后参与当前检索替代旧版，当前资料还需有效。",
+      "annotation_reason": "支持段提供所问信息；相近段仅提供其他事项的信息，不能据此回答完整问题。"
+    },
+    {
+      "query_id": "negative-01",
+      "topic_id": "cross_topic",
+      "split": "dev",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "明天北京会不会下雨？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有天气预报或气象观测。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-03",
+      "topic_id": "cross_topic",
+      "split": "dev",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "今天食堂的午餐菜单是什么？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有餐饮菜单。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-05",
+      "topic_id": "cross_topic",
+      "split": "dev",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "怎样给Linux安装显卡驱动？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有操作系统驱动安装步骤。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-07",
+      "topic_id": "cross_topic",
+      "split": "dev",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "买哪款手机性价比最高？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有手机产品价格和推荐。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-09",
+      "topic_id": "cross_topic",
+      "split": "dev",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "这周足球比赛谁拿了冠军？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有体育赛事结果。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-11",
+      "topic_id": "cross_topic",
+      "split": "dev",
+      "label": "irrelevant",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "网购订单退货运费怎么算？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有电商退货规则。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-13",
+      "topic_id": "near_domain_missing",
+      "split": "dev",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "过去30天数据库备份任务的成功率是多少？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有备份任务运行次数或成功次数统计。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-15",
+      "topic_id": "near_domain_missing",
+      "split": "dev",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "X牌甲烷传感器的量程和供电电压具体是多少？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有该品牌型号的技术参数。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-17",
+      "topic_id": "near_domain_missing",
+      "split": "dev",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "最近一份备份文件的压缩率是多少？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有备份文件压缩前后的实际字节数。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-19",
+      "topic_id": "near_domain_missing",
+      "split": "dev",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "源定位模型对这次事件给出的各类别概率是多少？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有任何源定位模型输出或类别概率。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-21",
+      "topic_id": "near_domain_missing",
+      "split": "dev",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "备份压缩包的解密密码是什么？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有任何密码或凭据。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "negative-23",
+      "topic_id": "near_domain_missing",
+      "split": "dev",
+      "label": "unsupported",
+      "retrieval_expectation": "no_supporting_passage",
+      "query": "这批传感器是哪家厂家供货的？",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "采购段说明记录字段，但未提供实际供应商名称。",
+      "annotation_reason": "候选资料中没有回答该问题所需的事实或规定。"
+    },
+    {
+      "query_id": "background-01",
+      "topic_id": "unverified_field_fact",
+      "split": "dev",
+      "label": "unsupported",
+      "retrieval_expectation": "background_allowed",
+      "query": "当前测点已经执行断电了吗？",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "bench-manual_power-support",
+        "bench-fan_stop-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "规定或合成处置条件无法证明当前测点实际执行了断电。",
+      "annotation_reason": "可返回标注的规范背景，但背景不支持所问实际事实；单独报告，不把背景命中判为事实生成错误。"
+    },
+    {
+      "query_id": "background-03",
+      "topic_id": "unverified_field_fact",
+      "split": "dev",
+      "label": "unsupported",
+      "retrieval_expectation": "background_allowed",
+      "query": "哪位值班员昨天批准了复电？",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "bench-human_review-support",
+        "bench-manual_power-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "审批流程及记录要求不能证明昨日批准人的实际姓名。",
+      "annotation_reason": "可返回标注的规范背景，但背景不支持所问实际事实；单独报告，不把背景命中判为事实生成错误。"
+    },
+    {
+      "query_id": "background-05",
+      "topic_id": "unverified_field_fact",
+      "split": "dev",
+      "label": "unsupported",
+      "retrieval_expectation": "background_allowed",
+      "query": "这个测点今天已经完成标校了吗？",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "bench-calibration-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "调校方法及记录字段无法证明今日已执行调校。",
+      "annotation_reason": "可返回标注的规范背景，但背景不支持所问实际事实；单独报告，不把背景命中判为事实生成错误。"
+    }
+  ]
+}
