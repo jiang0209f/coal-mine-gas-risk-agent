@@ -54,12 +54,13 @@ def _validate(candidates, queries):
         seen.add(query_id)
 
 
-def load_benchmark(dataset_path, split="dev") -> dict:
+def load_benchmark(dataset_path, split="dev", manifest_path=None) -> dict:
     """Load approved frozen fixtures; dev does not open heldout question data."""
     if split not in ("dev", "heldout", "all"):
         raise ValueError("评测split必须为dev、heldout或all")
     path = Path(dataset_path).resolve()
-    manifest_path = path.with_name("knowledge_retrieval_benchmark_manifest.json")
+    manifest_path = (Path(manifest_path).resolve() if manifest_path is not None
+                     else path.with_name("knowledge_retrieval_benchmark_manifest.json"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     main = _verified_json(path, manifest["files"]["dev_and_candidates"]["sha256"])
     queries = list(main["queries"]) if split in ("dev", "all") else []
@@ -88,6 +89,7 @@ def _metrics(rows, k):
     irrelevant = [row for row in strict if row["label"] == "irrelevant"]
     unsupported = [row for row in strict if row["label"] == "unsupported"]
     background = [row for row in rows if row["retrieval_expectation"] == "background_allowed"]
+    hard_negative = [row for row in rows if row.get("hard_negative_reference_ids")]
     returned = lambda items: sum(bool(row["retrieved_reference_ids"]) for row in items)
     return {"positive_queries": len(positive),
             f"recall_at_{k}": _ratio(sum(row["support_recall"] for row in positive), len(positive)),
@@ -99,11 +101,15 @@ def _metrics(rows, k):
             "irrelevant_queries": len(irrelevant), "irrelevant_false_return_rate": _ratio(returned(irrelevant), len(irrelevant)),
             "unsupported_queries": len(unsupported), "unsupported_return_rate": _ratio(returned(unsupported), len(unsupported)),
             "background_probes": len(background), "background_probe_return_rate": _ratio(returned(background), len(background)),
-            "background_match_rate": _ratio(sum(bool(row["returned_background_reference_ids"]) for row in background), len(background))}
+            "background_match_rate": _ratio(sum(bool(row["returned_background_reference_ids"]) for row in background), len(background)),
+            "hard_negative_queries": len(hard_negative),
+            "hard_negative_top1_rate": _ratio(sum(row["top1_is_hard_negative"] for row in hard_negative), len(hard_negative)),
+            f"hard_negative_at_{k}_rate": _ratio(sum(bool(row["returned_hard_negative_reference_ids"]) for row in hard_negative), len(hard_negative))}
 
 
-def _observed_retrieval(retrieve_fn, question, candidates, embedding, k):
+def _observed_retrieval(retrieve_fn, question, candidates, embedding, k, reranker=None):
     errors, calls = [], []
+    rerank_errors, rerank_calls = [], []
 
     def tracked_embedding(texts):
         calls.append(True)
@@ -113,10 +119,20 @@ def _observed_retrieval(retrieve_fn, question, candidates, embedding, k):
             errors.append("error:" + type(error).__name__)
             raise
 
+    def tracked_reranker(query, passages):
+        rerank_calls.append(True)
+        try:
+            return reranker(query, passages)
+        except Exception as error:
+            rerank_errors.append("error:" + type(error).__name__)
+            raise
+
     with warnings.catch_warnings(record=True) as emitted:
         warnings.simplefilter("always", RuntimeWarning)
-        result = retrieve_fn(question, candidates,
-                             embedding=tracked_embedding if callable(embedding) else embedding, limit=k)
+        options = {"embedding": tracked_embedding if callable(embedding) else embedding, "limit": k}
+        if reranker is not None:
+            options["reranker"] = tracked_reranker
+        result = retrieve_fn(question, candidates, **options)
     entries = result if isinstance(result, list) else []
     modes = {row["retrieval_mode"] for row in entries if isinstance(row, dict) and row.get("retrieval_mode")}
     statuses = {row["embedding_status"] for row in entries if isinstance(row, dict) and row.get("embedding_status")}
@@ -133,20 +149,41 @@ def _observed_retrieval(retrieve_fn, question, candidates, embedding, k):
     else:
         mode = next(iter(modes), "hybrid" if calls else "lexical" if embedding is None else "unspecified")
         status = next(iter(statuses), "available" if calls else "not_configured" if embedding is None else "not_reported")
-    valid = not fallback and status not in ("mixed", "invalid_vectors", "unavailable")
-    return result, mode, status, valid
+    rerank_statuses = {row["reranker_status"] for row in entries if isinstance(row, dict) and row.get("reranker_status")}
+    rerank_modes = {row["reranking_mode"] for row in entries if isinstance(row, dict) and row.get("reranking_mode")}
+    rerank_warnings = [str(item.message) for item in emitted
+                       if issubclass(item.category, RuntimeWarning) and "检索重排" in str(item.message)]
+    failed_rerank_statuses = rerank_statuses - {"available", "not_configured", "not_called"}
+    rerank_fallback = bool(rerank_errors or rerank_warnings or "hybrid_fallback" in rerank_modes
+                           or failed_rerank_statuses)
+    if rerank_fallback:
+        reranking_mode = "hybrid_fallback"
+        reranker_status = (rerank_errors[-1] if rerank_errors else next(iter(sorted(failed_rerank_statuses)),
+                           "invalid_scores" if rerank_calls else "unavailable"))
+    elif len(rerank_statuses) > 1 or len(rerank_modes) > 1:
+        reranking_mode, reranker_status = "mixed", "mixed"
+    else:
+        reranker_status = next(iter(rerank_statuses), "available" if rerank_calls
+                               else "not_configured" if reranker is None else "not_called")
+        reranking_mode = next(iter(rerank_modes), "cross_encoder" if rerank_calls else reranker_status)
+    valid = (not fallback and status not in ("mixed", "invalid_vectors", "unavailable")
+             and not rerank_fallback and reranker_status != "mixed")
+    return result, mode, status, valid, reranker_status, reranking_mode
 
 
-def evaluate_benchmark(candidates, queries, retrieve_fn, embedding=None, k=5) -> dict:
+def evaluate_benchmark(candidates, queries, retrieve_fn, embedding=None, k=5, *, reranker=None) -> dict:
     """Score supporting passages, keeping unverified-field-fact probes separate."""
     if isinstance(k, bool) or not isinstance(k, int) or not 1 <= k <= 50:
         raise ValueError("评测k必须为1至50的整数")
+    if reranker is not None and not callable(reranker):
+        raise ValueError("评测reranker必须为可调用的本机相关性接口")
     _validate(candidates, queries)
     references = {row["reference_id"] for row in candidates}
     rows = []
     for query in queries:
         started = time.perf_counter()
-        result, mode, status, valid = _observed_retrieval(retrieve_fn, query["query"], candidates, embedding, k)
+        result, mode, status, valid, reranker_status, reranking_mode = _observed_retrieval(
+            retrieve_fn, query["query"], candidates, embedding, k, reranker)
         if (not isinstance(result, list) or any(not isinstance(row, dict) or row.get("reference_id") not in references for row in result)
                 or len({row["reference_id"] for row in result}) != len(result)):
             raise ValueError("评测检索结果含未知、重复或无效引用")
@@ -156,43 +193,58 @@ def evaluate_benchmark(candidates, queries, retrieve_fn, embedding=None, k=5) ->
         ranks = [index for index, reference in enumerate(ids, 1) if reference in gold]
         first = min(ranks) if ranks else None
         background = set(query.get("background_relevant_reference_ids", []))
+        hard_negative = set(query.get("hard_negative_reference_ids", []))
         rows.append({"query_id": query["query_id"], "topic_id": query["topic_id"], "split": query["split"],
                      "query": query["query"], "label": query["label"],
                      "retrieval_expectation": query.get("retrieval_expectation",
                                                        "supporting_passage" if query["label"] == "supported" else "no_supporting_passage"),
                      "retrieval_mode": mode, "embedding_status": status, "valid": valid,
+                     "reranker_status": reranker_status, "reranking_mode": reranking_mode,
+                     "recall_paths": sorted({item["recall_path"] for item in result if item.get("recall_path")}),
                      "supporting_reference_ids": sorted(gold), "retrieved_reference_ids": ids,
                      "returned_background_reference_ids": sorted(background.intersection(ids)),
-                     "returned_hard_negative_reference_ids": sorted(set(query.get("hard_negative_reference_ids", [])).intersection(ids)),
+                     "hard_negative_reference_ids": sorted(hard_negative),
+                     "returned_hard_negative_reference_ids": sorted(hard_negative.intersection(ids)),
+                     "top1_is_hard_negative": bool(ids and ids[0] in hard_negative),
                      "first_support_rank": first, "support_recall": len(gold.intersection(ids)) / len(gold) if gold else None,
                      "reciprocal_rank": 1 / first if first else 0,
                      "duration_seconds": round(time.perf_counter() - started, 6),
                      "ranking": [{key: item[key] for key in ("reference_id", "score", "lexical_score", "semantic_score",
-                                                           "rerank_reasons", "retrieval_mode", "embedding_status")
+                                                           "rerank_reasons", "retrieval_mode", "embedding_status",
+                                                           "hybrid_score", "rerank_score", "reranker_status", "reranking_mode",
+                                                           "recall_path", "semantic_rank", "rerank_rank", "fusion_method",
+                                                           "retrieval_rank", "retrieval_rank_source")
                                   if key in item} for item in result]})
     valid_rows = [row for row in rows if row["valid"]]
     invalid_ids = [row["query_id"] for row in rows if not row["valid"]]
     return {"k": k, "metrics": _metrics(valid_rows, k), "metrics_all_queries": _metrics(rows, k), "per_query": rows,
             "validity": {"valid": not invalid_ids, "invalid_query_ids": invalid_ids,
                          "metrics_scope": "valid_queries_only", "total_queries": len(rows), "valid_queries": len(valid_rows)},
-            "diagnostics": {"fallback_queries": sum(row["retrieval_mode"] == "lexical_fallback" for row in rows),
+            "diagnostics": {"fallback_queries": sum(row["retrieval_mode"] == "lexical_fallback"
+                                                     or row["reranking_mode"] == "hybrid_fallback" for row in rows),
+                            "reranker_fallback_queries": sum(row["reranking_mode"] == "hybrid_fallback" for row in rows),
                             "retrieval_mode_counts": dict(Counter(row["retrieval_mode"] for row in rows)),
-                            "embedding_status_counts": dict(Counter(row["embedding_status"] for row in rows))},
+                            "embedding_status_counts": dict(Counter(row["embedding_status"] for row in rows)),
+                            "reranker_status_counts": dict(Counter(row["reranker_status"] for row in rows)),
+                            "reranking_mode_counts": dict(Counter(row["reranking_mode"] for row in rows))},
             "by_split": {split: _metrics([row for row in valid_rows if row["split"] == split], k) for split in sorted({row["split"] for row in rows})},
             "by_topic": {topic: _metrics([row for row in valid_rows if row["topic_id"] == topic], k) for topic in sorted({row["topic_id"] for row in rows})},
             "definitions": {"recall": "Mean fraction of gold supporting passages present in top-k, over supported questions only.",
                             "mrr": "Mean reciprocal first supporting rank within top-k, over supported questions only.",
                             "negative_false_return": "Any returned candidate for strict irrelevant/unsupported questions; measures retrieval candidates, not fabricated generation.",
                             "background_probes": "Relevant background may be retrieved but does not prove the requested field fact; reported separately.",
-                            "validity": "Semantic fallback or mixed status invalidates the run; primary metrics exclude invalid queries, all-query metrics remain diagnostic."}}
+                            "hard_negative": "Top-1 and any top-k hard-negative rates use valid questions with annotated hard-negative references as denominator; empty results count zero.",
+                            "validity": "Embedding or reranker fallback and mixed status invalidate the run; primary metrics exclude invalid queries, all-query metrics remain diagnostic."}}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", required=True)
+    parser.add_argument("--manifest")
     parser.add_argument("--split", choices=("dev", "heldout", "all"), default="dev")
     parser.add_argument("--k", type=int, choices=(5, 10, 50), default=5)
     parser.add_argument("--model-dir", required=True)
+    parser.add_argument("--reranker-model-dir")
     parser.add_argument("--index-dir", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--system-revision", required=True)
@@ -208,7 +260,7 @@ def main():
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     from app.adapters.text_embeddings import LocalTextEmbeddings
     from app.services.knowledge.retrieval import retrieve
-    loaded = load_benchmark(args.dataset, split=args.split)
+    loaded = load_benchmark(args.dataset, split=args.split, manifest_path=args.manifest)
     attempted_network = []
     def blocked(*args, **kwargs):
         attempted_network.append(True)
@@ -217,7 +269,12 @@ def main():
         encoder = LocalTextEmbeddings(args.model_dir, args.index_dir)
         encoder([row["title"] + "\n" + row["text"] for row in loaded["candidates"]])
         warmup = dict(encoder.last_run)
-        report = evaluate_benchmark(loaded["candidates"], loaded["queries"], retrieve, embedding=encoder, k=args.k)
+        reranker = None
+        if args.reranker_model_dir is not None:
+            from app.adapters.text_reranking import LocalTextReranker
+            reranker = LocalTextReranker(args.reranker_model_dir)
+        report = evaluate_benchmark(loaded["candidates"], loaded["queries"], retrieve,
+                                    embedding=encoder, k=args.k, reranker=reranker)
     manifest = json.loads((Path(args.model_dir) / "manifest.json").read_text(encoding="utf-8"))
     report.update(schema_version="knowledge-retrieval-evaluation-v1", evaluated_at=datetime.now(timezone.utc).isoformat(),
                   dataset=loaded["metadata"], system={"revision": args.system_revision, "python": platform.python_version(),
@@ -228,6 +285,21 @@ def main():
                   model={"repo_id": manifest["repo_id"], "revision": manifest["revision"], "model_key": encoder.model_key,
                          "onnx_sha256": manifest["files"]["model.onnx"]["sha256"]},
                   cache_warmup=warmup, network_attempts=len(attempted_network), cloud_calls=0)
+    if reranker is not None:
+        reranker_manifest_path = Path(args.reranker_model_dir) / "manifest.json"
+        reranker_manifest = json.loads(reranker_manifest_path.read_text(encoding="utf-8"))
+        report["reranker_model"] = {
+            "repo_id": reranker_manifest["repo_id"], "revision": reranker_manifest["revision"],
+            "model_file": reranker_manifest["model_file"], "model_key": reranker.model_key,
+            "onnx_sha256": reranker_manifest["files"][reranker_manifest["model_file"]]["sha256"],
+            "manifest_file": str(reranker_manifest_path.resolve()),
+            "manifest_sha256": hashlib.sha256(reranker_manifest_path.read_bytes()).hexdigest(),
+            "runtime_files": {name: reranker_manifest["files"][name]["sha256"]
+                              for name in ("config.json", "tokenizer.json", reranker_manifest["model_file"])
+                              if name in reranker_manifest["files"]},
+            "window_strategy": dict(reranker.window_strategy),
+            "inference_strategy": dict(reranker.inference_strategy), "last_run": dict(reranker.last_run)}
+        report["system"]["reranker_sha256"] = hashlib.sha256(Path(inspect.getsourcefile(LocalTextReranker)).read_bytes()).hexdigest()
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"report": str(output), "metrics": report["metrics"], "by_split": report["by_split"],
                       "network_attempts": len(attempted_network), "cloud_calls": 0}, ensure_ascii=True))

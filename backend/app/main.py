@@ -53,7 +53,11 @@ def build_services(configuration):
         from app.adapters.text_embeddings import LocalTextEmbeddings
         embedding = LocalTextEmbeddings(configuration.knowledge_embedding_model_dir,
             configuration.knowledge_index_dir or runtime / "knowledge-index")
-    s["knowledge"] = KnowledgeService(store, upload_dir=runtime / "knowledge-files", embedding=embedding)
+    reranker = None
+    if configuration.knowledge_reranker_model_dir is not None:
+        from app.adapters.text_reranking import LocalTextReranker
+        reranker = LocalTextReranker(configuration.knowledge_reranker_model_dir)
+    s["knowledge"] = KnowledgeService(store, upload_dir=runtime / "knowledge-files", embedding=embedding, reranker=reranker)
     s["public_knowledge"] = PublicKnowledgeService(s["knowledge"], configuration)
     s["cases"] = CasesService(store, s["alerts"], s["knowledge"])
     s["evaluation"] = EvaluationService(store)

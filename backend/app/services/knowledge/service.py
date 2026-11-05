@@ -25,13 +25,14 @@ _MEDIA_TYPES = {".txt": "text/plain; charset=utf-8", ".md": "text/markdown; char
 
 
 class KnowledgeService:
-    def __init__(self, store: Store, allowed_roots=None, upload_dir=None, clock=now_utc, embedding=None) -> None:
+    def __init__(self, store: Store, allowed_roots=None, upload_dir=None, clock=now_utc, embedding=None, reranker=None) -> None:
         self.store = store
         self.auth = AuthService(store)
         self.allowed_roots = [Path(path).resolve() for path in (allowed_roots or [])]
         self.upload_dir = Path(upload_dir).resolve() if upload_dir is not None else None
         self.clock = clock
         self.embedding = embedding
+        self.reranker = reranker
 
     def upload_file(self, actor: Actor, filename: str, content: bytes, face_ids=None) -> dict:
         self.auth.authorize(actor, "manage_data")
@@ -255,7 +256,7 @@ class KnowledgeService:
         metadata = self._conflict_metadata(context, public_only)
         candidates = annotate_conflicts(candidates, metadata)
         try:
-            return retrieve(query, candidates, embedding=self.embedding)
+            return retrieve(query, candidates, embedding=self.embedding, reranker=self.reranker)
         except ValueError as error:
             raise DomainError("检索参数或索引无效") from error
 

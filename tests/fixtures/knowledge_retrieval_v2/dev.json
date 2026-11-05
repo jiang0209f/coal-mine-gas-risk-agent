@@ -1,0 +1,1776 @@
+{
+  "schema_version": "synthetic-knowledge-retrieval-v2",
+  "provenance": "人工逐段独立编写的合成评测材料，不包含生产资料，不作为现场操作依据；未调用外部模型或网络生成。",
+  "labeling_policy": "支持需能够回答问题；同词、背景相近或仅列记录字段不等于提供实际事实。",
+  "split_protocol": "奇数主题阳性1-3为dev，偶数主题4-6为dev；严格负例全局奇数dev；背景探针奇数主题dev。",
+  "topics": [
+    {
+      "topic_id": "evacuation",
+      "name": "撤离通道选择",
+      "supporting_reference_ids": [
+        "v2-evacuation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-evacuation-near-1",
+        "v2-evacuation-near-2",
+        "v2-evacuation-near-3",
+        "v2-evacuation-near-4"
+      ]
+    },
+    {
+      "topic_id": "air_supply",
+      "name": "供风中断处置",
+      "supporting_reference_ids": [
+        "v2-air_supply-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-air_supply-near-1",
+        "v2-air_supply-near-2",
+        "v2-air_supply-near-3",
+        "v2-air_supply-near-4"
+      ]
+    },
+    {
+      "topic_id": "power_permit",
+      "name": "报警切电后的送电许可",
+      "supporting_reference_ids": [
+        "v2-power_permit-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-power_permit-near-1",
+        "v2-power_permit-near-2",
+        "v2-power_permit-near-3",
+        "v2-power_permit-near-4"
+      ]
+    },
+    {
+      "topic_id": "sensor_adjustment",
+      "name": "甲烷示值比对与调校记录",
+      "supporting_reference_ids": [
+        "v2-sensor_adjustment-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-sensor_adjustment-near-1",
+        "v2-sensor_adjustment-near-2",
+        "v2-sensor_adjustment-near-3",
+        "v2-sensor_adjustment-near-4"
+      ]
+    },
+    {
+      "topic_id": "telemetry_gap",
+      "name": "采集失联与迟到记录",
+      "supporting_reference_ids": [
+        "v2-telemetry_gap-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-telemetry_gap-near-1",
+        "v2-telemetry_gap-near-2",
+        "v2-telemetry_gap-near-3",
+        "v2-telemetry_gap-near-4"
+      ]
+    },
+    {
+      "topic_id": "alarm_basis",
+      "name": "报警判断可回查依据",
+      "supporting_reference_ids": [
+        "v2-alarm_basis-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-alarm_basis-near-1",
+        "v2-alarm_basis-near-2",
+        "v2-alarm_basis-near-3",
+        "v2-alarm_basis-near-4"
+      ]
+    },
+    {
+      "topic_id": "backup_validation",
+      "name": "数据库副本与恢复验证",
+      "supporting_reference_ids": [
+        "v2-backup_validation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-backup_validation-near-1",
+        "v2-backup_validation-near-2",
+        "v2-backup_validation-near-3",
+        "v2-backup_validation-near-4"
+      ]
+    },
+    {
+      "topic_id": "measurement_revision",
+      "name": "监测原值更正留痕",
+      "supporting_reference_ids": [
+        "v2-measurement_revision-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-measurement_revision-near-1",
+        "v2-measurement_revision-near-2",
+        "v2-measurement_revision-near-3",
+        "v2-measurement_revision-near-4"
+      ]
+    },
+    {
+      "topic_id": "drainage_assessment",
+      "name": "抽采效果的证据组合",
+      "supporting_reference_ids": [
+        "v2-drainage_assessment-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-drainage_assessment-near-1",
+        "v2-drainage_assessment-near-2",
+        "v2-drainage_assessment-near-3",
+        "v2-drainage_assessment-near-4"
+      ]
+    },
+    {
+      "topic_id": "estimate_observation",
+      "name": "未来估计与到达观测",
+      "supporting_reference_ids": [
+        "v2-estimate_observation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-estimate_observation-near-1",
+        "v2-estimate_observation-near-2",
+        "v2-estimate_observation-near-3",
+        "v2-estimate_observation-near-4"
+      ]
+    },
+    {
+      "topic_id": "response_signoff",
+      "name": "处置提交与独立复核",
+      "supporting_reference_ids": [
+        "v2-response_signoff-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-response_signoff-near-1",
+        "v2-response_signoff-near-2",
+        "v2-response_signoff-near-3",
+        "v2-response_signoff-near-4"
+      ]
+    },
+    {
+      "topic_id": "reference_effectivity",
+      "name": "引用资料的当前效期",
+      "supporting_reference_ids": [
+        "v2-reference_effectivity-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-reference_effectivity-near-1",
+        "v2-reference_effectivity-near-2",
+        "v2-reference_effectivity-near-3",
+        "v2-reference_effectivity-near-4"
+      ]
+    }
+  ],
+  "candidates": [
+    {
+      "reference_id": "v2-evacuation-support",
+      "title": "撤离通道选择（第二轮合成）",
+      "text": "应急导引卡把撤离通道分为现场确认可通行和已封闭两类。带班人根据人员所在位置，在路线图上选择通往指定安全出口的可通行路径；首选通道封闭时改选已确认的备用通道。出发前交代转向节点和汇合位置，不能只凭平日上下班的走法撤离。",
+      "locator": {
+        "page": 1,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-evacuation-near-1",
+      "title": "通勤班车站点（第二轮合成）",
+      "text": "通勤线路表列出地面班车停靠站、发车顺序和上下班接送时段，司机据此安排车辆。",
+      "locator": {
+        "page": 1,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-evacuation-near-2",
+      "title": "联络巷测绘（第二轮合成）",
+      "text": "测绘成果记录联络巷的方位、标高和断面尺寸，用于核对工程图纸是否与测量成果一致。",
+      "locator": {
+        "page": 1,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-evacuation-near-3",
+      "title": "到达集合区清点（第二轮合成）",
+      "text": "人员抵达集合区后，由清点员逐一核对姓名和班组，汇总已到、未到人数并向调度报送。",
+      "locator": {
+        "page": 1,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-evacuation-near-4",
+      "title": "地面演练签到（第二轮合成）",
+      "text": "地面演练签到册记录参演者、到场时间与讲解课程，演练结束后清点归还的训练器材。",
+      "locator": {
+        "page": 1,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-air_supply-support",
+      "title": "供风中断处置（第二轮合成）",
+      "text": "本处置卡适用于现场已确认供风中断的作业区。确认后停止该区作业，切断规定范围的作业设备电源，将人员转移到预定安全位置并报告调度；电脑页面卡住本身不能等同于供风中断。供风恢复后仍须完成现场检查并登记，才允许人员按指令重新进入。",
+      "locator": {
+        "page": 2,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-air_supply-near-1",
+      "title": "通风机检修计划（第二轮合成）",
+      "text": "检修计划按设备编号安排轴承检查、润滑和振动检测，检修人员在完成后签填维护工单。",
+      "locator": {
+        "page": 2,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-air_supply-near-2",
+      "title": "风管到货验收（第二轮合成）",
+      "text": "库房验收风管数量、连接件规格和外观，并将到货批次与采购清单核对。",
+      "locator": {
+        "page": 2,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-air_supply-near-3",
+      "title": "监控电脑维护（第二轮合成）",
+      "text": "维护地面监控电脑时检查系统启动项、显示器和应用程序版本，维护完毕后测试页面是否可打开。",
+      "locator": {
+        "page": 2,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-air_supply-near-4",
+      "title": "风机能耗台账（第二轮合成）",
+      "text": "能耗台账按月汇总各通风机的电量、运行时数和费用，用于设备用能分析。",
+      "locator": {
+        "page": 2,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-power_permit-support",
+      "title": "报警切电后的送电许可（第二轮合成）",
+      "text": "由报警导致的作业设备切电，恢复电源需解除故障原因、取得现场检查合格单和送电许可单，由获得授权的执行人按许可手动合闸。显示值回落不能替代这两张单据。交接班未完成许可交接时，接班人不得沿用口头说法直接送电。",
+      "locator": {
+        "page": 3,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-power_permit-near-1",
+      "title": "适配器参数卡（第二轮合成）",
+      "text": "电源适配器卡记录输入电压、输出电压、电流和接口形状，便于给桌面设备选配供电附件。",
+      "locator": {
+        "page": 3,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-power_permit-near-2",
+      "title": "网络会话重连（第二轮合成）",
+      "text": "网络客户端会话断开后，程序按连接策略重新建立通信，恢复的是消息收发通道。",
+      "locator": {
+        "page": 3,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-power_permit-near-3",
+      "title": "开关遥信测试（第二轮合成）",
+      "text": "遥信测试核对开关状态指示能否送达监控界面，并记录测试时的显示状态与通信结果。",
+      "locator": {
+        "page": 3,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-power_permit-near-4",
+      "title": "班组用电报表（第二轮合成）",
+      "text": "用电报表汇总班组用电量和统计时段，报表行列用于比较不同班组的用能情况。",
+      "locator": {
+        "page": 3,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-sensor_adjustment-support",
+      "title": "甲烷示值比对与调校记录（第二轮合成）",
+      "text": "调校作业使用有身份标识的参考气样，先记下甲烷探头的原示值，再按流程调整零点和量程，最后再次通入参考气样比对。记录表把参考气样标识、调整前示值、复测示值、执行人和完成时刻连在同一条记录中；只修改屏幕数字不算完成调校。",
+      "locator": {
+        "page": 4,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-sensor_adjustment-near-1",
+      "title": "探头安装位置表（第二轮合成）",
+      "text": "位置表列出探头编号、巷道名称、安装方向和接入分站，供维护人员寻找设备。",
+      "locator": {
+        "page": 4,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-sensor_adjustment-near-2",
+      "title": "仪器到货核对（第二轮合成）",
+      "text": "到货核对清单比对仪器型号、包装、数量和附件，签收后转入资产登记。",
+      "locator": {
+        "page": 4,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-sensor_adjustment-near-3",
+      "title": "参考气样入库（第二轮合成）",
+      "text": "气样库登记钢瓶编号、证书存放位置和入库批次，由保管员记录领用和归还。",
+      "locator": {
+        "page": 4,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-sensor_adjustment-near-4",
+      "title": "传感器保修登记（第二轮合成）",
+      "text": "保修登记保存采购凭证、保修联系方式和送修单号，用于跟踪售后进度。",
+      "locator": {
+        "page": 4,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-telemetry_gap-support",
+      "title": "采集失联与迟到记录（第二轮合成）",
+      "text": "采集链路超过允许的无消息间隔时，将该通道标为失联，并把最后一条成功到达的记录标为旧值。登记失联起止区间；重连后收到的历史数据按自身采样时刻补入时间轴，同时保留实际到达时刻，不能把补回的旧采样点显示成刚发生的新采样。",
+      "locator": {
+        "page": 5,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-telemetry_gap-near-1",
+      "title": "监控服务双机接管（第二轮合成）",
+      "text": "活动监控服务进程故障后，由待命服务接管相同业务地址，接管日志记录进程状态和服务切换结果。",
+      "locator": {
+        "page": 5,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-telemetry_gap-near-2",
+      "title": "报警阈值登记（第二轮合成）",
+      "text": "阈值登记表记录报警配置使用的物理量、单位、等级和版本，变更时保留版本说明。",
+      "locator": {
+        "page": 5,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-telemetry_gap-near-3",
+      "title": "数据库定时副本（第二轮合成）",
+      "text": "定时副本任务将数据库文件复制到存储目录，并把文件摘要写入备份清单。",
+      "locator": {
+        "page": 5,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-telemetry_gap-near-4",
+      "title": "传感器地址调整（第二轮合成）",
+      "text": "接线维护后核对传感器通讯地址与分站映射，使地址与点位表的对应关系一致。",
+      "locator": {
+        "page": 5,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-alarm_basis-support",
+      "title": "报警判断可回查依据（第二轮合成）",
+      "text": "对一条观测作报警判定时，先核对它的测点身份、物理量、单位和质量状态，再与当时生效的阈值版本比较。报警依据包把该观测原值、采样时刻、质量标记和采用的规则版本放在一起，使事后能重建当时的判定；只存图标颜色不足以解释报警。",
+      "locator": {
+        "page": 6,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-alarm_basis-near-1",
+      "title": "报警面板主题（第二轮合成）",
+      "text": "界面主题规定报警图标的颜色、闪烁频率和文字大小，用于统一显示效果。",
+      "locator": {
+        "page": 6,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-alarm_basis-near-2",
+      "title": "班次报警数量（第二轮合成）",
+      "text": "班次报表按等级累计报警次数，并生成不同班次之间的数量比较图。",
+      "locator": {
+        "page": 6,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-alarm_basis-near-3",
+      "title": "预测曲线图例（第二轮合成）",
+      "text": "预测图例用虚线和阴影区分模型估计曲线及其显示区间，图例本身不修改监测数据。",
+      "locator": {
+        "page": 6,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-alarm_basis-near-4",
+      "title": "设备标签印制（第二轮合成）",
+      "text": "标签印制清单列出设备名称、资产编号和标签材质，用于设备外壳识别。",
+      "locator": {
+        "page": 6,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-backup_validation-support",
+      "title": "数据库副本与恢复验证（第二轮合成）",
+      "text": "数据库备份形成带版本号的快照文件和摘要清单。验证人员先核对文件摘要，再在不影响业务的独立目录试恢复，比较恢复库的记录数量和抽样原值，并登记能恢复到的业务时点。进程切到待命主机不等于数据库副本已经通过恢复验证。",
+      "locator": {
+        "page": 7,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-backup_validation-near-1",
+      "title": "监控进程接替（第二轮合成）",
+      "text": "主服务停机后，待命服务接替业务进程并使用相同访问地址，操作日志登记接替时间。",
+      "locator": {
+        "page": 7,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-backup_validation-near-2",
+      "title": "曲线导出表格（第二轮合成）",
+      "text": "导出功能按用户选择的时间区间生成数据表格，供阅读、绘图及统计分析。",
+      "locator": {
+        "page": 7,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-backup_validation-near-3",
+      "title": "个人设置同步（第二轮合成）",
+      "text": "个人配置同步把常用筛选条件和图表配色在终端间保持一致，方便继续使用。",
+      "locator": {
+        "page": 7,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-backup_validation-near-4",
+      "title": "磁盘容量盘点（第二轮合成）",
+      "text": "容量盘点登记存储磁盘的总容量、剩余空间和挂载位置，供扩容规划参考。",
+      "locator": {
+        "page": 7,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-measurement_revision-support",
+      "title": "监测原值更正留痕（第二轮合成）",
+      "text": "发现一条监测原始记录录入有误时，建立指向该原记录的更正版本，原始记录继续保存。更正记录写明被更正的字段、原值、新值、更正原因、经办人和提交时刻。曲线显示平滑或重新缩放不能代替这种可追踪的更正关系。",
+      "locator": {
+        "page": 8,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-measurement_revision-near-1",
+      "title": "数学作业订正（第二轮合成）",
+      "text": "课堂订正先标出算式中的错误步骤，再给出正确计算过程，由学生核对解题方法。",
+      "locator": {
+        "page": 8,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-measurement_revision-near-2",
+      "title": "备件名称修改（第二轮合成）",
+      "text": "资产管理员修改备件名称时检查名称与采购清单对应，便于库房按名称检索。",
+      "locator": {
+        "page": 8,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-measurement_revision-near-3",
+      "title": "曲线平滑显示（第二轮合成）",
+      "text": "平滑显示按选定的绘图窗口改善折线观感，显示参数可以由用户恢复为默认值。",
+      "locator": {
+        "page": 8,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-measurement_revision-near-4",
+      "title": "纸质表格复印（第二轮合成）",
+      "text": "纸质表格复印按原件页码整理复印件，检查缺页和纸张清晰程度后装订。",
+      "locator": {
+        "page": 8,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-drainage_assessment-support",
+      "title": "抽采效果的证据组合（第二轮合成）",
+      "text": "本评判说明把抽采效果依据分为钻孔对目标区域的控制资料、计量装置原始记录、抽采浓度与流量的同期记录、效果检验结果四组。评判时核对各组资料的区域和时段是否一致。巷道某个甲烷点数值较低，不能单独代替这四组证据。",
+      "locator": {
+        "page": 9,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-drainage_assessment-near-1",
+      "title": "抽采泵维修（第二轮合成）",
+      "text": "维修工单登记泵体、轴承和密封件的维修项目，更换配件后记录试运转结果。",
+      "locator": {
+        "page": 9,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-drainage_assessment-near-2",
+      "title": "监测点定位（第二轮合成）",
+      "text": "定位表列出甲烷测点编号、巷道和分站，便于从监测序列回到具体测点。",
+      "locator": {
+        "page": 9,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-drainage_assessment-near-3",
+      "title": "气体排放费用（第二轮合成）",
+      "text": "费用表按计费周期汇总排放相关账单，财务人员据此核对缴费。",
+      "locator": {
+        "page": 9,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-drainage_assessment-near-4",
+      "title": "单孔施工验收（第二轮合成）",
+      "text": "单孔验收记录设计孔位、实际施工参数和验收签字，用于核查该孔的施工是否完成。",
+      "locator": {
+        "page": 9,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-estimate_observation-support",
+      "title": "未来估计与到达观测（第二轮合成）",
+      "text": "一份预测结果带有生成时刻、所用模型版本和预测目标时间段，表达的是未来估计。监测事实则由质量合格且已经到达系统的观测原值及其采样时刻形成。两类记录分栏保存；一条后来补到的观测保留原采样时刻，不会把先前生成的预测变成当时已知的事实。",
+      "locator": {
+        "page": 10,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-estimate_observation-near-1",
+      "title": "模型训练配置（第二轮合成）",
+      "text": "训练配置保存学习率、迭代次数和训练批次大小，供重现实验和检查参数设置。",
+      "locator": {
+        "page": 10,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-estimate_observation-near-2",
+      "title": "历史告警计数（第二轮合成）",
+      "text": "历史报表按日期和点位汇总已登记的告警数量，用于统计展示。",
+      "locator": {
+        "page": 10,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-estimate_observation-near-3",
+      "title": "质量标签字典（第二轮合成）",
+      "text": "质量标签字典解释缺测、异常和有效等标签的字面含义，供界面显示统一使用。",
+      "locator": {
+        "page": 10,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-estimate_observation-near-4",
+      "title": "未来值班安排（第二轮合成）",
+      "text": "值班安排按未来班次列出应到岗的岗位和时间，供人员安排使用。",
+      "locator": {
+        "page": 10,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-response_signoff-support",
+      "title": "处置提交与独立复核（第二轮合成）",
+      "text": "处置流程由经办人提交现场核查材料与措施执行记录，再交另一名有权限的复核人检查。复核记录写明结论、意见及时间；资料缺项时退回补充，不把提交状态直接记成闭环。完成状态需关联经办提交、复核结论和批准记录，保留原操作轨迹。",
+      "locator": {
+        "page": 11,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-response_signoff-near-1",
+      "title": "培训考试审核（第二轮合成）",
+      "text": "培训管理员核对考试名单和答卷，登记培训考试成绩及是否达到课程要求。",
+      "locator": {
+        "page": 11,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-response_signoff-near-2",
+      "title": "操作意见草稿（第二轮合成）",
+      "text": "草稿功能保存经办人尚未提交的文字，允许继续编辑并记录最近保存时间。",
+      "locator": {
+        "page": 11,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-response_signoff-near-3",
+      "title": "设备采购审批（第二轮合成）",
+      "text": "采购申请先核对设备型号与预算，再按采购流程填写询价和批准信息。",
+      "locator": {
+        "page": 11,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-response_signoff-near-4",
+      "title": "任务工时统计（第二轮合成）",
+      "text": "工时表汇总各类任务的填报时长和人数，用于工作量统计。",
+      "locator": {
+        "page": 11,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-reference_effectivity-support",
+      "title": "引用资料的当前效期（第二轮合成）",
+      "text": "建议生成时，以本次知识核验时刻检查资料是否已批准、是否已到生效时刻且尚未到失效时刻。不能把上传日期新当成已经生效。新版本完成批准并生效后替代旧版参加当前检索；旧引用仍保留版本及定位供审计，回放历史监测数据也不改变本次核验时刻。",
+      "locator": {
+        "page": 12,
+        "paragraph": 1
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-reference_effectivity-near-1",
+      "title": "文件上传检查（第二轮合成）",
+      "text": "上传检查验证文件能否打开、字节数与摘要是否一致，并登记上传人和接收时间。",
+      "locator": {
+        "page": 12,
+        "paragraph": 2
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-reference_effectivity-near-2",
+      "title": "历史文献目录（第二轮合成）",
+      "text": "历史目录按年份整理标题和存放位置，便于寻找某一年代的原件。",
+      "locator": {
+        "page": 12,
+        "paragraph": 3
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-reference_effectivity-near-3",
+      "title": "图纸标题修改（第二轮合成）",
+      "text": "制图人员修改图纸标题后检查标题栏排版、字体和页边距，再保存图纸文件。",
+      "locator": {
+        "page": 12,
+        "paragraph": 4
+      },
+      "version": "synthetic-round2-v1"
+    },
+    {
+      "reference_id": "v2-reference_effectivity-near-4",
+      "title": "文档格式转换（第二轮合成）",
+      "text": "格式转换将文本或图纸输出为另一种文件格式，并检查转换后的页面是否可读。",
+      "locator": {
+        "page": 12,
+        "paragraph": 5
+      },
+      "version": "synthetic-round2-v1"
+    }
+  ],
+  "queries": [
+    {
+      "query_id": "v2-evacuation-q1",
+      "topic_id": "evacuation",
+      "split": "dev",
+      "style": "direct",
+      "label": "supported",
+      "query": "选择井下撤离通道时，应核对什么，原先的通道被封闭后怎么办？",
+      "supporting_reference_ids": [
+        "v2-evacuation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-evacuation-near-1",
+        "v2-evacuation-near-2",
+        "v2-evacuation-near-3",
+        "v2-evacuation-near-4"
+      ],
+      "required_information": "依据所在位置和通道状态选通向指定出口的路线，首选封闭时用已确认备用通道，并交代转向节点与汇合位置。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-evacuation-q2",
+      "topic_id": "evacuation",
+      "split": "dev",
+      "style": "colloquial",
+      "label": "supported",
+      "query": "平时走的那条路走不通了，带班的该怎么把人往出口带？",
+      "supporting_reference_ids": [
+        "v2-evacuation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-evacuation-near-1",
+        "v2-evacuation-near-2",
+        "v2-evacuation-near-3",
+        "v2-evacuation-near-4"
+      ],
+      "required_information": "依据所在位置和通道状态选通向指定出口的路线，首选封闭时用已确认备用通道，并交代转向节点与汇合位置。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-evacuation-q3",
+      "topic_id": "evacuation",
+      "split": "dev",
+      "style": "ellipsis",
+      "label": "supported",
+      "query": "出发前，转弯点和碰头位置要不要先说清？",
+      "supporting_reference_ids": [
+        "v2-evacuation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-evacuation-near-1",
+        "v2-evacuation-near-2",
+        "v2-evacuation-near-3",
+        "v2-evacuation-near-4"
+      ],
+      "required_information": "依据所在位置和通道状态选通向指定出口的路线，首选封闭时用已确认备用通道，并交代转向节点与汇合位置。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-evacuation-negative-1",
+      "topic_id": "evacuation",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "cross_topic",
+      "query": "市区地铁通勤去车站应该在哪一站换乘？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有城市地铁站点或换乘资料。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-evacuation-negative-3",
+      "topic_id": "evacuation",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "polysemy",
+      "query": "悬疑小说里怎样安排主角从密室脱身才好看？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有小说情节创作资料。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-evacuation-background",
+      "topic_id": "evacuation",
+      "split": "dev",
+      "label": "unsupported",
+      "query": "此刻那段备用通道已经确认可以走了吗？",
+      "retrieval_expectation": "background_allowed",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "v2-evacuation-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "通道确认程序不能证明当前这段实际通道已经完成确认。",
+      "annotation_reason": "规则背景可返回，但不能据此宣称实际已经发生、执行、获批或生效。"
+    },
+    {
+      "query_id": "v2-air_supply-q4",
+      "topic_id": "air_supply",
+      "split": "dev",
+      "style": "negation",
+      "label": "supported",
+      "query": "只要风又来了就能马上返岗吗，还需补哪一步？",
+      "supporting_reference_ids": [
+        "v2-air_supply-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-air_supply-near-1",
+        "v2-air_supply-near-2",
+        "v2-air_supply-near-3",
+        "v2-air_supply-near-4"
+      ],
+      "required_information": "须先确认实际供风中断，再停作业、断规定范围设备电源、转移人员和报告；重新进入需恢复供风后的检查登记。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-air_supply-q5",
+      "topic_id": "air_supply",
+      "split": "dev",
+      "style": "conditional",
+      "label": "supported",
+      "query": "如果只是电脑界面冻结而没有证据表明断风，可以直接按停风认定吗？",
+      "supporting_reference_ids": [
+        "v2-air_supply-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-air_supply-near-1",
+        "v2-air_supply-near-2",
+        "v2-air_supply-near-3",
+        "v2-air_supply-near-4"
+      ],
+      "required_information": "须先确认实际供风中断，再停作业、断规定范围设备电源、转移人员和报告；重新进入需恢复供风后的检查登记。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-air_supply-q6",
+      "topic_id": "air_supply",
+      "split": "dev",
+      "style": "long",
+      "label": "supported",
+      "query": "调度接到现场确认供风中断的报告后，既要处理在作业区的人和设备，也要安排之后重新进入的条件；这张处置卡把这两个阶段分别规定成什么？",
+      "supporting_reference_ids": [
+        "v2-air_supply-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-air_supply-near-1",
+        "v2-air_supply-near-2",
+        "v2-air_supply-near-3",
+        "v2-air_supply-near-4"
+      ],
+      "required_information": "须先确认实际供风中断，再停作业、断规定范围设备电源、转移人员和报告；重新进入需恢复供风后的检查登记。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-air_supply-negative-2",
+      "topic_id": "air_supply",
+      "split": "dev",
+      "label": "unsupported",
+      "negative_category": "missing_evidence",
+      "query": "这台风机本月累计停转了多少分钟？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有实际停转时长统计。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-power_permit-q1",
+      "topic_id": "power_permit",
+      "split": "dev",
+      "style": "direct",
+      "label": "supported",
+      "query": "报警切电的设备恢复供电前需要哪些单据，谁来怎样执行？",
+      "supporting_reference_ids": [
+        "v2-power_permit-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-power_permit-near-1",
+        "v2-power_permit-near-2",
+        "v2-power_permit-near-3",
+        "v2-power_permit-near-4"
+      ],
+      "required_information": "报警切电后需原因处理、检查合格单及送电许可，由授权人手动合闸；读数回落和口头交接均不能替代许可。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-power_permit-q2",
+      "topic_id": "power_permit",
+      "split": "dev",
+      "style": "colloquial",
+      "label": "supported",
+      "query": "屏幕上的数已经下来了，接班的人能听一句通知就把闸合上吗？",
+      "supporting_reference_ids": [
+        "v2-power_permit-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-power_permit-near-1",
+        "v2-power_permit-near-2",
+        "v2-power_permit-near-3",
+        "v2-power_permit-near-4"
+      ],
+      "required_information": "报警切电后需原因处理、检查合格单及送电许可，由授权人手动合闸；读数回落和口头交接均不能替代许可。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-power_permit-q3",
+      "topic_id": "power_permit",
+      "split": "dev",
+      "style": "ellipsis",
+      "label": "supported",
+      "query": "检查单、许可单，少一张也能上电？",
+      "supporting_reference_ids": [
+        "v2-power_permit-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-power_permit-near-1",
+        "v2-power_permit-near-2",
+        "v2-power_permit-near-3",
+        "v2-power_permit-near-4"
+      ],
+      "required_information": "报警切电后需原因处理、检查合格单及送电许可，由授权人手动合闸；读数回落和口头交接均不能替代许可。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-power_permit-negative-1",
+      "topic_id": "power_permit",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "cross_topic",
+      "query": "哪款充电宝给手机充电更快？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有消费充电产品的性能资料。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-power_permit-negative-3",
+      "topic_id": "power_permit",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "polysemy",
+      "query": "桌面电源适配器插上插座后发烫是什么原因？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "参数卡没有发热机理或故障诊断内容。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-power_permit-background",
+      "topic_id": "power_permit",
+      "split": "dev",
+      "label": "unsupported",
+      "query": "现在这台设备已经由授权人合闸了吗？",
+      "retrieval_expectation": "background_allowed",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "v2-power_permit-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "送电许可条件与执行方式不能证明当前设备已实际合闸。",
+      "annotation_reason": "规则背景可返回，但不能据此宣称实际已经发生、执行、获批或生效。"
+    },
+    {
+      "query_id": "v2-sensor_adjustment-q4",
+      "topic_id": "sensor_adjustment",
+      "split": "dev",
+      "style": "negation",
+      "label": "supported",
+      "query": "只把屏幕数字改得顺眼、不做气样复测，能算调校完成吗？",
+      "supporting_reference_ids": [
+        "v2-sensor_adjustment-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-sensor_adjustment-near-1",
+        "v2-sensor_adjustment-near-2",
+        "v2-sensor_adjustment-near-3",
+        "v2-sensor_adjustment-near-4"
+      ],
+      "required_information": "参考气样身份、调整前示值、零点量程调整及复测必须关联记录；修改显示数字不能代替调校。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-sensor_adjustment-q5",
+      "topic_id": "sensor_adjustment",
+      "split": "dev",
+      "style": "conditional",
+      "label": "supported",
+      "query": "如果执行人已经调整零点和量程，但没有登记气样身份，记录是否完整？",
+      "supporting_reference_ids": [
+        "v2-sensor_adjustment-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-sensor_adjustment-near-1",
+        "v2-sensor_adjustment-near-2",
+        "v2-sensor_adjustment-near-3",
+        "v2-sensor_adjustment-near-4"
+      ],
+      "required_information": "参考气样身份、调整前示值、零点量程调整及复测必须关联记录；修改显示数字不能代替调校。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-sensor_adjustment-q6",
+      "topic_id": "sensor_adjustment",
+      "split": "dev",
+      "style": "long",
+      "label": "supported",
+      "query": "维护人员要使一次甲烷探头调校在以后可以复核，从通气样前的原示值到调整后的再次比对，应在同一记录里保存哪些身份、读数和人员时间信息？",
+      "supporting_reference_ids": [
+        "v2-sensor_adjustment-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-sensor_adjustment-near-1",
+        "v2-sensor_adjustment-near-2",
+        "v2-sensor_adjustment-near-3",
+        "v2-sensor_adjustment-near-4"
+      ],
+      "required_information": "参考气样身份、调整前示值、零点量程调整及复测必须关联记录；修改显示数字不能代替调校。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-sensor_adjustment-negative-2",
+      "topic_id": "sensor_adjustment",
+      "split": "dev",
+      "label": "unsupported",
+      "negative_category": "missing_evidence",
+      "query": "本次使用的参考气样精确浓度是多少？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "只有记录气样身份的要求，没有实际气样浓度。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-telemetry_gap-q1",
+      "topic_id": "telemetry_gap",
+      "split": "dev",
+      "style": "direct",
+      "label": "supported",
+      "query": "采集失联后旧值怎样标识，补回的历史数据按什么时间放入？",
+      "supporting_reference_ids": [
+        "v2-telemetry_gap-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-telemetry_gap-near-1",
+        "v2-telemetry_gap-near-2",
+        "v2-telemetry_gap-near-3",
+        "v2-telemetry_gap-near-4"
+      ],
+      "required_information": "失联旧值需标记，缺口有起止区间，迟到数据分别保存采样与到达时刻并按原采样补入。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-telemetry_gap-q2",
+      "topic_id": "telemetry_gap",
+      "split": "dev",
+      "style": "colloquial",
+      "label": "supported",
+      "query": "断线时屏幕留着最后一个数，连上后又涌进来一串旧记录，这些能当刚采的吗？",
+      "supporting_reference_ids": [
+        "v2-telemetry_gap-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-telemetry_gap-near-1",
+        "v2-telemetry_gap-near-2",
+        "v2-telemetry_gap-near-3",
+        "v2-telemetry_gap-near-4"
+      ],
+      "required_information": "失联旧值需标记，缺口有起止区间，迟到数据分别保存采样与到达时刻并按原采样补入。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-telemetry_gap-q3",
+      "topic_id": "telemetry_gap",
+      "split": "dev",
+      "style": "ellipsis",
+      "label": "supported",
+      "query": "补传那批，采样时刻和收件时刻要分着留？",
+      "supporting_reference_ids": [
+        "v2-telemetry_gap-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-telemetry_gap-near-1",
+        "v2-telemetry_gap-near-2",
+        "v2-telemetry_gap-near-3",
+        "v2-telemetry_gap-near-4"
+      ],
+      "required_information": "失联旧值需标记，缺口有起止区间，迟到数据分别保存采样与到达时刻并按原采样补入。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-telemetry_gap-negative-1",
+      "topic_id": "telemetry_gap",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "cross_topic",
+      "query": "家庭路由器怎样设置才能让游戏延迟最低？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有家庭网络性能配置资料。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-telemetry_gap-negative-3",
+      "topic_id": "telemetry_gap",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "polysemy",
+      "query": "手机显示信号满格但短信没送达，应该换哪张SIM卡？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有手机或SIM卡故障资料。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-telemetry_gap-background",
+      "topic_id": "telemetry_gap",
+      "split": "dev",
+      "label": "unsupported",
+      "query": "当前这个采集通道已经恢复通信了吗？",
+      "retrieval_expectation": "background_allowed",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "v2-telemetry_gap-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "失联和补传的处理规则不能证明通道当前已重连。",
+      "annotation_reason": "规则背景可返回，但不能据此宣称实际已经发生、执行、获批或生效。"
+    },
+    {
+      "query_id": "v2-alarm_basis-q4",
+      "topic_id": "alarm_basis",
+      "split": "dev",
+      "style": "negation",
+      "label": "supported",
+      "query": "只保存告警颜色而不保存原值和规则版本，不能解释判定，对吗？",
+      "supporting_reference_ids": [
+        "v2-alarm_basis-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-alarm_basis-near-1",
+        "v2-alarm_basis-near-2",
+        "v2-alarm_basis-near-3",
+        "v2-alarm_basis-near-4"
+      ],
+      "required_information": "报警判定关联测点、量和单位、质量状态及当时阈值版本，依据包保存原值时间质量和规则。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-alarm_basis-q5",
+      "topic_id": "alarm_basis",
+      "split": "dev",
+      "style": "conditional",
+      "label": "supported",
+      "query": "如果观测的单位或质量状态没有确认，能省略这些核对直接套阈值吗？",
+      "supporting_reference_ids": [
+        "v2-alarm_basis-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-alarm_basis-near-1",
+        "v2-alarm_basis-near-2",
+        "v2-alarm_basis-near-3",
+        "v2-alarm_basis-near-4"
+      ],
+      "required_information": "报警判定关联测点、量和单位、质量状态及当时阈值版本，依据包保存原值时间质量和规则。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-alarm_basis-q6",
+      "topic_id": "alarm_basis",
+      "split": "dev",
+      "style": "long",
+      "label": "supported",
+      "query": "某次告警已经解除，但审核者需要回到当时重新核验它是否按正确规则触发，应把哪条观测的哪些属性与哪个版本的规则连起来，而不是只看当时的显示样式？",
+      "supporting_reference_ids": [
+        "v2-alarm_basis-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-alarm_basis-near-1",
+        "v2-alarm_basis-near-2",
+        "v2-alarm_basis-near-3",
+        "v2-alarm_basis-near-4"
+      ],
+      "required_information": "报警判定关联测点、量和单位、质量状态及当时阈值版本，依据包保存原值时间质量和规则。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-alarm_basis-negative-2",
+      "topic_id": "alarm_basis",
+      "split": "dev",
+      "label": "unsupported",
+      "negative_category": "missing_evidence",
+      "query": "这条规则的甲烷报警阈值精确数值是多少？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有实际阈值数值。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-backup_validation-q1",
+      "topic_id": "backup_validation",
+      "split": "dev",
+      "style": "direct",
+      "label": "supported",
+      "query": "数据库备份的恢复验证要做哪些检查，与监控进程接管有什么区别？",
+      "supporting_reference_ids": [
+        "v2-backup_validation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-backup_validation-near-1",
+        "v2-backup_validation-near-2",
+        "v2-backup_validation-near-3",
+        "v2-backup_validation-near-4"
+      ],
+      "required_information": "备份快照需摘要核对、独立目录试恢复、记录数量和原值比对及可恢复业务时点，区别于进程接管。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-backup_validation-q2",
+      "topic_id": "backup_validation",
+      "split": "dev",
+      "style": "colloquial",
+      "label": "supported",
+      "query": "手头有一份库的拷贝，怎么试才能知道不是只能看不能用？",
+      "supporting_reference_ids": [
+        "v2-backup_validation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-backup_validation-near-1",
+        "v2-backup_validation-near-2",
+        "v2-backup_validation-near-3",
+        "v2-backup_validation-near-4"
+      ],
+      "required_information": "备份快照需摘要核对、独立目录试恢复、记录数量和原值比对及可恢复业务时点，区别于进程接管。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-backup_validation-q3",
+      "topic_id": "backup_validation",
+      "split": "dev",
+      "style": "ellipsis",
+      "label": "supported",
+      "query": "摘要对上了，还得试还原并核对原值吗？",
+      "supporting_reference_ids": [
+        "v2-backup_validation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-backup_validation-near-1",
+        "v2-backup_validation-near-2",
+        "v2-backup_validation-near-3",
+        "v2-backup_validation-near-4"
+      ],
+      "required_information": "备份快照需摘要核对、独立目录试恢复、记录数量和原值比对及可恢复业务时点，区别于进程接管。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-backup_validation-negative-1",
+      "topic_id": "backup_validation",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "cross_topic",
+      "query": "手机恢复出厂设置后聊天照片能否找回来？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有手机数据恢复资料。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-backup_validation-negative-3",
+      "topic_id": "backup_validation",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "polysemy",
+      "query": "氧化还原反应中转移电子数怎样配平？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有化学反应资料。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-backup_validation-background",
+      "topic_id": "backup_validation",
+      "split": "dev",
+      "label": "unsupported",
+      "query": "这份快照现在已经试恢复成功了吗？",
+      "retrieval_expectation": "background_allowed",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "v2-backup_validation-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "恢复验证步骤不能证明这份实际快照已经验证成功。",
+      "annotation_reason": "规则背景可返回，但不能据此宣称实际已经发生、执行、获批或生效。"
+    },
+    {
+      "query_id": "v2-measurement_revision-q4",
+      "topic_id": "measurement_revision",
+      "split": "dev",
+      "style": "negation",
+      "label": "supported",
+      "query": "把图上的线抹平了不等于完成原始记录更正，对吗？",
+      "supporting_reference_ids": [
+        "v2-measurement_revision-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-measurement_revision-near-1",
+        "v2-measurement_revision-near-2",
+        "v2-measurement_revision-near-3",
+        "v2-measurement_revision-near-4"
+      ],
+      "required_information": "更正新增版本并关联原记录，保存字段、前后值、原因、经办人与提交时刻；显示处理不等于更正留痕。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-measurement_revision-q5",
+      "topic_id": "measurement_revision",
+      "split": "dev",
+      "style": "conditional",
+      "label": "supported",
+      "query": "如果只保存新数却不保留它指向的原记录，更正关系还能回查吗？",
+      "supporting_reference_ids": [
+        "v2-measurement_revision-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-measurement_revision-near-1",
+        "v2-measurement_revision-near-2",
+        "v2-measurement_revision-near-3",
+        "v2-measurement_revision-near-4"
+      ],
+      "required_information": "更正新增版本并关联原记录，保存字段、前后值、原因、经办人与提交时刻；显示处理不等于更正留痕。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-measurement_revision-q6",
+      "topic_id": "measurement_revision",
+      "split": "dev",
+      "style": "long",
+      "label": "supported",
+      "query": "审核者要追溯某条监测记录从录入错误到提交更正的全过程，除新值以外还应该能找到哪些字段、人员、原因与时间，以及它们和原记录之间的对应关系？",
+      "supporting_reference_ids": [
+        "v2-measurement_revision-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-measurement_revision-near-1",
+        "v2-measurement_revision-near-2",
+        "v2-measurement_revision-near-3",
+        "v2-measurement_revision-near-4"
+      ],
+      "required_information": "更正新增版本并关联原记录，保存字段、前后值、原因、经办人与提交时刻；显示处理不等于更正留痕。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-measurement_revision-negative-2",
+      "topic_id": "measurement_revision",
+      "split": "dev",
+      "label": "unsupported",
+      "negative_category": "missing_evidence",
+      "query": "这类调度监测记录最低必须保留多少年？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有保存期限数值。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-drainage_assessment-q1",
+      "topic_id": "drainage_assessment",
+      "split": "dev",
+      "style": "direct",
+      "label": "supported",
+      "query": "抽采效果评判的四组证据是什么，还要检查区域时段的哪些对应关系？",
+      "supporting_reference_ids": [
+        "v2-drainage_assessment-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-drainage_assessment-near-1",
+        "v2-drainage_assessment-near-2",
+        "v2-drainage_assessment-near-3",
+        "v2-drainage_assessment-near-4"
+      ],
+      "required_information": "抽采效果需四组资料且区域时段一致，单一巷道甲烷低值不能代替完整效果证据。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-drainage_assessment-q2",
+      "topic_id": "drainage_assessment",
+      "split": "dev",
+      "style": "colloquial",
+      "label": "supported",
+      "query": "巷道上那个气体数很低，就能说明这一片抽得好吗？",
+      "supporting_reference_ids": [
+        "v2-drainage_assessment-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-drainage_assessment-near-1",
+        "v2-drainage_assessment-near-2",
+        "v2-drainage_assessment-near-3",
+        "v2-drainage_assessment-near-4"
+      ],
+      "required_information": "抽采效果需四组资料且区域时段一致，单一巷道甲烷低值不能代替完整效果证据。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-drainage_assessment-q3",
+      "topic_id": "drainage_assessment",
+      "split": "dev",
+      "style": "ellipsis",
+      "label": "supported",
+      "query": "浓度、流量不是同一时段，能直接拼到一起判效果？",
+      "supporting_reference_ids": [
+        "v2-drainage_assessment-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-drainage_assessment-near-1",
+        "v2-drainage_assessment-near-2",
+        "v2-drainage_assessment-near-3",
+        "v2-drainage_assessment-near-4"
+      ],
+      "required_information": "抽采效果需四组资料且区域时段一致，单一巷道甲烷低值不能代替完整效果证据。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-drainage_assessment-negative-1",
+      "topic_id": "drainage_assessment",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "cross_topic",
+      "query": "汽车油泵哪种结构抽油效率最高？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有汽车油泵比较资料。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-drainage_assessment-negative-3",
+      "topic_id": "drainage_assessment",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "polysemy",
+      "query": "抽象叙事写作应该怎样选取片段？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有叙事写作资料。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-drainage_assessment-background",
+      "topic_id": "drainage_assessment",
+      "split": "dev",
+      "label": "unsupported",
+      "query": "这个区域目前已经通过抽采效果评判了吗？",
+      "retrieval_expectation": "background_allowed",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "v2-drainage_assessment-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "证据组合要求不能证明某实际区域已取得通过结论。",
+      "annotation_reason": "规则背景可返回，但不能据此宣称实际已经发生、执行、获批或生效。"
+    },
+    {
+      "query_id": "v2-estimate_observation-q4",
+      "topic_id": "estimate_observation",
+      "split": "dev",
+      "style": "negation",
+      "label": "supported",
+      "query": "后来补到观测，并不会把以前的预测变成那时已知的事实，对吗？",
+      "supporting_reference_ids": [
+        "v2-estimate_observation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-estimate_observation-near-1",
+        "v2-estimate_observation-near-2",
+        "v2-estimate_observation-near-3",
+        "v2-estimate_observation-near-4"
+      ],
+      "required_information": "预测关联生成时刻、模型与未来目标段，事实关联已到达合格原值与采样时刻，两类分栏且不倒置知识时间。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-estimate_observation-q5",
+      "topic_id": "estimate_observation",
+      "split": "dev",
+      "style": "conditional",
+      "label": "supported",
+      "query": "如果预测与某条到达观测指向相同时段，应靠哪些属性区分各自的含义？",
+      "supporting_reference_ids": [
+        "v2-estimate_observation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-estimate_observation-near-1",
+        "v2-estimate_observation-near-2",
+        "v2-estimate_observation-near-3",
+        "v2-estimate_observation-near-4"
+      ],
+      "required_information": "预测关联生成时刻、模型与未来目标段，事实关联已到达合格原值与采样时刻，两类分栏且不倒置知识时间。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-estimate_observation-q6",
+      "topic_id": "estimate_observation",
+      "split": "dev",
+      "style": "long",
+      "label": "supported",
+      "query": "复盘人员同时看到模型在某时刻生成的未来曲线、随后才到达的一条较早采样记录以及历史告警报表，应该用哪些时间和版本信息区分未来估计、当时已知观测与迟到补入的事实？",
+      "supporting_reference_ids": [
+        "v2-estimate_observation-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-estimate_observation-near-1",
+        "v2-estimate_observation-near-2",
+        "v2-estimate_observation-near-3",
+        "v2-estimate_observation-near-4"
+      ],
+      "required_information": "预测关联生成时刻、模型与未来目标段，事实关联已到达合格原值与采样时刻，两类分栏且不倒置知识时间。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-estimate_observation-negative-2",
+      "topic_id": "estimate_observation",
+      "split": "dev",
+      "label": "unsupported",
+      "negative_category": "missing_evidence",
+      "query": "这个预测模型运行后的MAE具体是多少？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有实际预测误差评测值。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-response_signoff-q1",
+      "topic_id": "response_signoff",
+      "split": "dev",
+      "style": "direct",
+      "label": "supported",
+      "query": "处置提交之后如何经独立复核到完成，缺项时怎样处理并关联哪些记录？",
+      "supporting_reference_ids": [
+        "v2-response_signoff-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-response_signoff-near-1",
+        "v2-response_signoff-near-2",
+        "v2-response_signoff-near-3",
+        "v2-response_signoff-near-4"
+      ],
+      "required_information": "提交与有权限的另一人复核分开，缺项退回，完成关联提交材料、复核和批准记录并保留轨迹。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-response_signoff-q2",
+      "topic_id": "response_signoff",
+      "split": "dev",
+      "style": "colloquial",
+      "label": "supported",
+      "query": "我把现场处理材料点了提交，是不是就算这个事结了？",
+      "supporting_reference_ids": [
+        "v2-response_signoff-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-response_signoff-near-1",
+        "v2-response_signoff-near-2",
+        "v2-response_signoff-near-3",
+        "v2-response_signoff-near-4"
+      ],
+      "required_information": "提交与有权限的另一人复核分开，缺项退回，完成关联提交材料、复核和批准记录并保留轨迹。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-response_signoff-q3",
+      "topic_id": "response_signoff",
+      "split": "dev",
+      "style": "ellipsis",
+      "label": "supported",
+      "query": "经办人自己复核自己，也能直接标完成？",
+      "supporting_reference_ids": [
+        "v2-response_signoff-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-response_signoff-near-1",
+        "v2-response_signoff-near-2",
+        "v2-response_signoff-near-3",
+        "v2-response_signoff-near-4"
+      ],
+      "required_information": "提交与有权限的另一人复核分开，缺项退回，完成关联提交材料、复核和批准记录并保留轨迹。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-response_signoff-negative-1",
+      "topic_id": "response_signoff",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "cross_topic",
+      "query": "私营公司差旅报销最晚几天到账？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有差旅报销或到账期限资料。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-response_signoff-negative-3",
+      "topic_id": "response_signoff",
+      "split": "dev",
+      "label": "irrelevant",
+      "negative_category": "polysemy",
+      "query": "游戏里的任务审批官在哪张地图上？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有游戏地图或角色资料。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    },
+    {
+      "query_id": "v2-response_signoff-background",
+      "topic_id": "response_signoff",
+      "split": "dev",
+      "label": "unsupported",
+      "query": "这次处置现在已经得到最终批准了吗？",
+      "retrieval_expectation": "background_allowed",
+      "supporting_reference_ids": [],
+      "background_relevant_reference_ids": [
+        "v2-response_signoff-support"
+      ],
+      "hard_negative_reference_ids": [],
+      "required_information": "闭环状态条件不能证明某次实际任务已经获批。",
+      "annotation_reason": "规则背景可返回，但不能据此宣称实际已经发生、执行、获批或生效。"
+    },
+    {
+      "query_id": "v2-reference_effectivity-q4",
+      "topic_id": "reference_effectivity",
+      "split": "dev",
+      "style": "negation",
+      "label": "supported",
+      "query": "旧引用能打开不等于旧版本现在还能用，对吗？",
+      "supporting_reference_ids": [
+        "v2-reference_effectivity-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-reference_effectivity-near-1",
+        "v2-reference_effectivity-near-2",
+        "v2-reference_effectivity-near-3",
+        "v2-reference_effectivity-near-4"
+      ],
+      "required_information": "按当前核验时刻判断批准和生失效范围，不按上传新旧或监测历史时刻；新获批生效版替代，旧引用可审计。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-reference_effectivity-q5",
+      "topic_id": "reference_effectivity",
+      "split": "dev",
+      "style": "conditional",
+      "label": "supported",
+      "query": "如果新版本已经批准却尚未到生效时刻，能马上替掉当前检索版本吗？",
+      "supporting_reference_ids": [
+        "v2-reference_effectivity-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-reference_effectivity-near-1",
+        "v2-reference_effectivity-near-2",
+        "v2-reference_effectivity-near-3",
+        "v2-reference_effectivity-near-4"
+      ],
+      "required_information": "按当前核验时刻判断批准和生失效范围，不按上传新旧或监测历史时刻；新获批生效版替代，旧引用可审计。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-reference_effectivity-q6",
+      "topic_id": "reference_effectivity",
+      "split": "dev",
+      "style": "long",
+      "label": "supported",
+      "query": "用户正在回放较早时期的监测曲线，资料库里同时有刚上传但未生效的新版和能够审计回查的旧引用；生成今天的建议时，应以哪个核验时刻及哪些批准效期条件决定当前可用版本？",
+      "supporting_reference_ids": [
+        "v2-reference_effectivity-support"
+      ],
+      "hard_negative_reference_ids": [
+        "v2-reference_effectivity-near-1",
+        "v2-reference_effectivity-near-2",
+        "v2-reference_effectivity-near-3",
+        "v2-reference_effectivity-near-4"
+      ],
+      "required_information": "按当前核验时刻判断批准和生失效范围，不按上传新旧或监测历史时刻；新获批生效版替代，旧引用可审计。",
+      "annotation_reason": "支持段提供问题所需的规则或关系；四个相似段分别处理其他事项，不能完成该问题的回答。"
+    },
+    {
+      "query_id": "v2-reference_effectivity-negative-2",
+      "topic_id": "reference_effectivity",
+      "split": "dev",
+      "label": "unsupported",
+      "negative_category": "missing_evidence",
+      "query": "标准XYZ最新一次正式发布是哪一年？",
+      "retrieval_expectation": "no_supporting_passage",
+      "supporting_reference_ids": [],
+      "hard_negative_reference_ids": [],
+      "required_information": "没有该标准或其发布日期元数据。",
+      "annotation_reason": "全部候选均缺少回答该问题所需的信息。"
+    }
+  ]
+}

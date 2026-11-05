@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     database_url: str | None = None
     model_catalog_path: Path | None = None
     knowledge_embedding_model_dir: Path | None = None
+    knowledge_reranker_model_dir: Path | None = None
     knowledge_index_dir: Path | None = None
     ingestion_worker_enabled: bool = True
     realtime_monitor_enabled: bool = True
@@ -40,6 +41,11 @@ class Settings(BaseSettings):
     deepseek_max_tokens: int = Field(default=512, gt=0)
     # Shared by chat and briefs; retained name for config compatibility. Synthetic isolated sources only.
     event_brief_allowed_source_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("knowledge_reranker_model_dir", mode="before")
+    @classmethod
+    def normalize_reranker_model_dir(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("deepseek_api_key")
     @classmethod
